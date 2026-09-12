@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: suitventures-markets-indexer
+description: Memestock pools on Robinhood Chain (Uniswap v4), holders and Chainlink USD prices
+disable_default_cross_chain: true
+contracts:
+  - name: PoolManager
+    events:
+      - event: Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)
+chains:
+  - id: 4663
+    start_block: 0
+    contracts:
+      - name: PoolManager
+        address:
+          - 0x8366a39CC670B4001A1121B8F6A443A643e40951

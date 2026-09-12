@@ -1,0 +1,5 @@
+type Pool {
+  id: ID!
+  hooks: String!
+  createdAt: Int!
+}
