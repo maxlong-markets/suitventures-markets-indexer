@@ -94,9 +94,9 @@
     "symbol": "DELL",
     "name": "Dell • Robinhood Token",
     "decimals": 18,
-    "chainlinkProxy": null,
-    "chainlinkAggregator": null,
-    "chainlinkDecimals": null
+    "chainlinkProxy": "0x1c6c8cadbe02e19129c39ddb92281ce4c0bf206b",
+    "chainlinkAggregator": "0xd6ed4e7d4aba1111eb42a349899b5c72ee1c9fef",
+    "chainlinkDecimals": 8
   },
   {
     "address": "0x1d11f0496982706c5e14a514d4e79f2e6bde4516",
@@ -346,9 +346,9 @@
     "symbol": "SGOV",
     "name": "iShares 0-3 Month Treasury Bond • Robinhood Token",
     "decimals": 18,
-    "chainlinkProxy": null,
-    "chainlinkAggregator": null,
-    "chainlinkDecimals": null
+    "chainlinkProxy": "0xa0df4ee0fff975306345875e3548fcc519577a11",
+    "chainlinkAggregator": "0x0e96b7708487f91baac09697593d3e8bf253f2d8",
+    "chainlinkDecimals": 8
   },
   {
     "address": "0xf53f66751b1eff985311b693531e3290f600c410",
