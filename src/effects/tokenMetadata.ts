@@ -16,6 +16,15 @@ import type { PublicClient } from "viem";
 
 const RPC_URL = process.env.ENVIO_RPC_URL;
 
+// Without ENVIO_RPC_URL, every token silently gets fallback metadata (the
+// address-derived symbol, decimals 18) with no warning anywhere. Fail loudly
+// at startup instead. VITEST is set by the test runner itself, which
+// deliberately blanks this variable offline (see vitest.config.ts): the
+// per-call fallback below (an undefined `client`) still exists for that case.
+if (!RPC_URL && !process.env.VITEST) {
+  throw new Error("ENVIO_RPC_URL is required: token metadata is read over RPC (see README Deploy)");
+}
+
 const client = RPC_URL
   ? createPublicClient({ transport: http(RPC_URL, { batch: true }) })
   : undefined;

@@ -1,6 +1,16 @@
 import { createEffect, S } from "envio";
 import { fetchTransferHistory, type HistoricalTransfer } from "../lib/hypersync";
 
+// Without ENVIO_API_TOKEN, every call below silently returns an empty
+// history while the Initialize handler still marks historyLoaded true, so
+// supply and holder counts come out wrong for every token, forever, with no
+// error anywhere. Fail loudly at startup instead. VITEST is set by the test
+// runner itself, which deliberately blanks this variable offline (see
+// vitest.config.ts): the per-call fallback below still exists for that case.
+if (!process.env.ENVIO_API_TOKEN && !process.env.VITEST) {
+  throw new Error("ENVIO_API_TOKEN is required: the transfer-history replay calls HyperSync directly (see README Deploy)");
+}
+
 const transferSchema = S.schema({
   block: S.number,
   logIndex: S.number,
