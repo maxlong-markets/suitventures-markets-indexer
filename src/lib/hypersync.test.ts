@@ -172,6 +172,23 @@ describe("fetchTransferHistory", () => {
     expect(result.skipped).toBe(2);
   });
 
+  // FW11: HyperSync's field_selection can return topic3 as an explicit null
+  // (rather than simply omitting the key) for a log with no third indexed
+  // topic. A valid ERC-20 Transfer log shaped that way must be decoded, not
+  // treated as the ERC-721-shaped 3rd-topic case above.
+  it("accepts a valid ERC-20 log whose topic3 is explicitly null", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify(page(
+        [{ block_number: 100, log_index: 0, topic1: pad(ZERO), topic2: pad(A), topic3: null, data: hex(1000n) }],
+        [{ number: 100, timestamp: 100 }],
+        200,
+      )), { status: 200 });
+    });
+    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 199, apiToken: "tok" }, fetchImpl as unknown as typeof fetch);
+    expect(result.transfers).toEqual([{ block: 100, logIndex: 0, timestamp: 100, from: ZERO, to: A, value: "1000" }]);
+    expect(result.skipped).toBe(0);
+  });
+
   // Review finding B: a page that reports HTTP 200 but doesn't actually
   // advance past its own from_block (or lacks next_block/data entirely) must
   // throw, not return a truncated result that then gets cached as complete.
