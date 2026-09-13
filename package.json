@@ -9,6 +9,7 @@
     "dev": "envio dev",
     "start": "envio start",
     "test": "vitest run --test-timeout=20000 --passWithNoTests",
+    "test:live": "ENVIO_LIVE_TEST=1 vitest run --test-timeout=120000 src/live",
     "typecheck": "tsc --noEmit",
     "block-at": "node --env-file-if-exists=.env scripts/block-at.ts",
     "build-quotes": "node --env-file-if-exists=.env scripts/build-quotes.ts",
