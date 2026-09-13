@@ -12,10 +12,19 @@ const transferSchema = S.schema({
 
 /**
  * Transfer logs of a token before the block that registered it, from HyperSync.
- * Cached per (token, toBlock). Empty without ENVIO_API_TOKEN so tests and outages
- * never stop indexing; the token then simply has no pre-registration history.
- * The no-token case skips caching (ruling 2) so a deploy that's missing the
- * token can't freeze an empty history in place forever once it's configured.
+ * Cached per (token, toBlock). When ENVIO_API_TOKEN is unset, this returns an
+ * empty, UNCACHED history (ruling 2) so tests and a deploy missing the token
+ * never stop indexing — but the calling Initialize handler still marks the
+ * token's historyLoaded: true regardless, so a token first discovered before
+ * the API token is configured never gets its pre-registration history, even
+ * after the token is later set (review finding M1).
+ * A log that matches the address/topic0 filter but isn't shaped like a
+ * standard ERC-20 Transfer (an ERC-721 id-indexed Transfer, say) is skipped,
+ * not decoded, by `fetchTransferHistory`; when any are skipped this logs a
+ * warning, since the output schema only carries the transfers themselves.
+ * Rate-limited (not the HyperSync HTTP retry/backoff, which lives in
+ * `fetchTransferHistory` itself) because preload can call this once per new
+ * token discovered in a batch, all at once.
  */
 export const getTransferHistory = createEffect(
   {
@@ -23,7 +32,7 @@ export const getTransferHistory = createEffect(
     input: { token: S.string, toBlock: S.number },
     output: S.array(transferSchema),
     cache: true,
-    rateLimit: false,
+    rateLimit: { calls: 5, per: "second" },
   },
   async ({ input, context }): Promise<HistoricalTransfer[]> => {
     const apiToken = process.env.ENVIO_API_TOKEN;
@@ -32,7 +41,11 @@ export const getTransferHistory = createEffect(
       return [];
     }
     try {
-      return await fetchTransferHistory({ token: input.token, toBlock: input.toBlock, apiToken });
+      const { transfers, skipped } = await fetchTransferHistory({ token: input.token, toBlock: input.toBlock, apiToken });
+      if (skipped > 0) {
+        context.log.warn(`transfer history for ${input.token} up to ${input.toBlock}: skipped ${skipped} non-ERC-20 Transfer log(s)`);
+      }
+      return transfers;
     } catch (err) {
       context.log.error(`transfer history failed for ${input.token} up to ${input.toBlock}: ${String(err)}`);
       throw err; // a partial history is worse than a retry
