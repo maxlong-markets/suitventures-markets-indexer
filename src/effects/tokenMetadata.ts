@@ -7,6 +7,8 @@ import {
   BaseError,
   AbiDecodingDataSizeTooSmallError,
   AbiDecodingZeroDataError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
   IntegerOutOfRangeError,
   SizeExceedsPaddingSizeError,
 } from "viem";
@@ -50,27 +52,58 @@ function clean(s: string): string {
   return s.replace(/\x00/g, "").trim();
 }
 
-// True when `err` — or something in its viem `cause` chain — is an ABI
-// decoding error. That's the signal that the contract returned bytes32 from
-// symbol()/name() instead of the standard string, so retrying with the
-// bytes32 ABI is worth it. Transport/RPC errors (timeouts, 429s, etc.) never
-// match this, so a transient failure can't be silently misread as "must be
-// a bytes32 token".
+// Caps `s` at `max` Unicode code points — not UTF-16 code units. `.slice`
+// and `.substring` count code units, so they can cut a surrogate pair (an
+// emoji, say) in half and leave a lone surrogate behind. Envio stores
+// effect output in a Postgres jsonb column, and Postgres rejects a lone
+// surrogate in jsonb text with an encoding error envio's retry logic
+// doesn't recognize — so a split surrogate here can fail a batch write and
+// halt the indexer. Iterating via Array.from (like `for...of`) walks whole
+// code points, so a multi-unit character is always kept or dropped whole.
+function capCodePoints(s: string, max: number): string {
+  return Array.from(s).slice(0, max).join("");
+}
+
+// True when `err` — or something in its viem `cause` chain — signals that
+// symbol()/name() returned data the `string` ABI can't decode, i.e. the
+// contract used a bytes32 return instead: worth a bytes32 retry.
+//
+// False whenever the chain instead holds a zero-data error
+// (AbiDecodingZeroDataError or ContractFunctionZeroDataError — no code at
+// the address, or an empty return) or a ContractFunctionRevertedError (the
+// call reverted, even if the revert reason itself fails to decode). Those
+// calls have no valid return value under any ABI, so retrying with bytes32
+// would just repeat the same failure. This check runs before the
+// shape-mismatch check below and wins even if a decoding error also
+// appears elsewhere in the same cause chain (e.g. while parsing a revert
+// reason), since the revert is the real story.
+//
+// Transport/RPC errors (timeouts, 429s, etc.) match neither set, so a
+// transient failure can't be silently misread as "must be a bytes32 token".
 //
 // Confirmed offline (viem@2.56.3, see task-7-report.md "Fix round 1"):
 // decodeFunctionResult on a real bytes32 payload read with the `string` ABI
 // throws IntegerOutOfRangeError (the mis-parsed offset word overflows the
-// safe-integer check), not one of the AbiDecoding*Error classes. All four
-// classes below are the ones this viem version actually exports from its
-// root package; PositionOutOfBoundsError and InvalidBytesLengthError exist
-// internally but are not exported, so they can't be imported here.
-function isAbiDecodingError(err: unknown): boolean {
+// safe-integer check), not one of the AbiDecoding*Error classes. All
+// classes referenced below are the ones this viem version actually exports
+// from its root package; PositionOutOfBoundsError and InvalidBytesLengthError
+// exist internally but are not exported, so they can't be imported here.
+function shouldRetryAsBytes32(err: unknown): boolean {
+  const isUnrecoverable =
+    err instanceof BaseError &&
+    err.walk(
+      (e) =>
+        e instanceof AbiDecodingZeroDataError ||
+        e instanceof ContractFunctionZeroDataError ||
+        e instanceof ContractFunctionRevertedError,
+    ) !== null;
+  if (isUnrecoverable) return false;
+
   return (
     err instanceof BaseError &&
     err.walk(
       (e) =>
         e instanceof AbiDecodingDataSizeTooSmallError ||
-        e instanceof AbiDecodingZeroDataError ||
         e instanceof IntegerOutOfRangeError ||
         e instanceof SizeExceedsPaddingSizeError,
     ) !== null
@@ -86,8 +119,8 @@ function validate(
   rawName: string,
   rawDecimals: number,
 ): { symbol: string; name: string; decimals: number } | undefined {
-  const symbol = clean(rawSymbol).slice(0, MAX_SYMBOL_LENGTH);
-  const name = clean(rawName).slice(0, MAX_NAME_LENGTH);
+  const symbol = capCodePoints(clean(rawSymbol), MAX_SYMBOL_LENGTH);
+  const name = capCodePoints(clean(rawName), MAX_NAME_LENGTH);
   if (!symbol || !name) return undefined;
   if (!Number.isInteger(rawDecimals) || rawDecimals < 0 || rawDecimals > 255) {
     return undefined;
@@ -125,6 +158,7 @@ export async function readTokenMetadata(
   }
   const addr = address as `0x${string}`;
 
+  let firstError: unknown;
   try {
     const [symbol, name, decimals] = await Promise.all([
       client.readContract({ address: addr, abi: ERC20, functionName: "symbol" }),
@@ -132,9 +166,10 @@ export async function readTokenMetadata(
       client.readContract({ address: addr, abi: ERC20, functionName: "decimals" }),
     ]);
     return finish(address, symbol, name, decimals);
-  } catch (firstError) {
-    if (!isAbiDecodingError(firstError)) {
-      return { metadata: { ...fallback(address), ok: false }, error: firstError };
+  } catch (err) {
+    firstError = err;
+    if (!shouldRetryAsBytes32(err)) {
+      return { metadata: { ...fallback(address), ok: false }, error: err };
     }
   }
 
@@ -144,10 +179,37 @@ export async function readTokenMetadata(
       client.readContract({ address: addr, abi: ERC20_BYTES, functionName: "name" }),
       client.readContract({ address: addr, abi: ERC20_BYTES, functionName: "decimals" }),
     ]);
-    return finish(address, hexToString(symbolBytes), hexToString(nameBytes), decimals);
+    const result = finish(address, hexToString(symbolBytes), hexToString(nameBytes), decimals);
+    // The bytes32 read succeeded structurally but failed validation (e.g. a
+    // blank cleaned symbol). The original string-decode failure is still
+    // the most useful error to surface here, so keep it rather than
+    // reporting nothing.
+    if (!result.metadata.ok) {
+      return { metadata: result.metadata, error: firstError };
+    }
+    return result;
   } catch (secondError) {
-    return { metadata: { ...fallback(address), ok: false }, error: secondError };
+    return {
+      metadata: { ...fallback(address), ok: false },
+      error: new AggregateError(
+        [firstError, secondError],
+        "string and bytes32 metadata reads both failed",
+      ),
+    };
   }
+}
+
+/** For logging only: a message that's safe to put in logs or metrics.
+ * viem's `BaseError#message` often embeds the RPC URL — and for providers
+ * like Alchemy, the URL path carries the API key — while `shortMessage`
+ * never does. An `AggregateError` (both the string and bytes32 attempts
+ * failed) is described by joining its parts. */
+export function describeError(error: unknown): string {
+  if (error instanceof BaseError) return error.shortMessage;
+  if (error instanceof AggregateError) {
+    return error.errors.map(describeError).join("; ");
+  }
+  return String(error);
 }
 
 /** Name, symbol and decimals of an ERC-20. Successful reads are cached
@@ -168,7 +230,7 @@ export const getTokenMetadata = createEffect(
       context.cache = false;
       if (client) {
         context.log.warn(
-          `token metadata failed for ${address}: ${error ? String(error) : "invalid metadata"}`,
+          `token metadata failed for ${address}: ${error ? describeError(error) : "invalid metadata"}`,
         );
       }
     }
