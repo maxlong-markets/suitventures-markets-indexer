@@ -22,12 +22,15 @@ const transferSchema = S.schema({
 
 /**
  * Transfer logs of a token before the block that registered it, from HyperSync.
- * Cached per (token, toBlock). When ENVIO_API_TOKEN is unset, this returns an
- * empty, UNCACHED history (ruling 2) so tests and a deploy missing the token
- * never stop indexing — but the calling Initialize handler still marks the
- * token's historyLoaded: true regardless, so a token first discovered before
- * the API token is configured never gets its pre-registration history, even
- * after the token is later set (review finding M1).
+ * Never persisted to the cache: one row per token would sit there as dead weight
+ * once historyLoaded flips true, and a capped/incomplete result (see maxTransfers
+ * below) must never be replayed from a stale cache row on a later run. Envio still
+ * dedupes repeat calls with the same input within a single run/batch regardless.
+ * When ENVIO_API_TOKEN is unset, this returns an empty history so tests and a
+ * deploy missing the token never stop indexing — but the calling Initialize
+ * handler still marks the token's historyLoaded: true regardless, so a token
+ * first discovered before the API token is configured never gets its
+ * pre-registration history, even after the token is later set.
  * A log that matches the address/topic0 filter but isn't shaped like a
  * standard ERC-20 Transfer (an ERC-721 id-indexed Transfer, say) is skipped,
  * not decoded, by `fetchTransferHistory`; when any are skipped this logs a
@@ -44,17 +47,16 @@ export const getTransferHistory = createEffect(
     name: "getTransferHistory",
     input: { token: S.string, toBlock: S.number },
     output: S.array(transferSchema),
-    cache: true,
+    cache: false,
     rateLimit: { calls: 2, per: "second" },
   },
   async ({ input, context }): Promise<HistoricalTransfer[]> => {
     const apiToken = process.env.ENVIO_API_TOKEN;
     if (!apiToken) {
-      context.cache = false;
       return [];
     }
     try {
-      const { transfers, skipped } = await fetchTransferHistory({
+      const { transfers, skipped, capped } = await fetchTransferHistory({
         token: input.token,
         toBlock: input.toBlock,
         apiToken,
@@ -75,6 +77,12 @@ export const getTransferHistory = createEffect(
       });
       if (skipped > 0) {
         context.log.warn(`transfer history for ${input.token} up to ${input.toBlock}: skipped ${skipped} non-ERC-20 Transfer log(s)`);
+      }
+      if (capped) {
+        context.log.error(
+          `transfer history for ${input.token} up to ${input.toBlock}: exceeded the transfer cap, ` +
+            `holders and supply for this token will be incomplete`,
+        );
       }
       return transfers;
     } catch (err) {

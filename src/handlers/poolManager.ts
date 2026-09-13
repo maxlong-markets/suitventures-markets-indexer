@@ -1,5 +1,6 @@
 import { indexer, type Pool, type Swap, type Candle, type Address } from "envio";
 import { isQuote, QUOTE_ADDRESSES } from "../lib/quotes";
+import { isDenylisted } from "../lib/denylist";
 import { originFor } from "../lib/origin";
 import { priceFromSqrtPriceX96, toUnits, absBig } from "../lib/price";
 import { INTERVALS, bucketStart, candleId, candleWindowAllows } from "../lib/candles";
@@ -33,6 +34,10 @@ function classify(currency0: Address, currency1: Address) {
   // Native ETH (currency == address(0)) has no ERC-20 contract to register or
   // read metadata from, and ETH pools are deferred by README D22.
   if (token.toLowerCase() === ZERO_ADDRESS) return null;
+  // Anyone can pair a denylisted asset (WETH, a wrapped BTC, spam, ...) with a quote;
+  // tracking it as a memestock would replay that asset's entire chain transfer
+  // history (config/token-denylist.json).
+  if (isDenylisted(token)) return null;
   return { token, quote, tokenIsCurrency0: q1 };
 }
 

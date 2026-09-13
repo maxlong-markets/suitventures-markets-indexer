@@ -16,11 +16,17 @@ export type FetchTransferHistoryResult = {
   // standard ERC-20 Transfer (see isErc20TransferLog below), so were not
   // decoded into `transfers`.
   skipped: number;
+  // Set (true), with `transfers` emptied, when the collected count would have
+  // exceeded maxTransfers: paging stopped immediately so memory stays bounded
+  // (see the cap check in the paging loop below). Absent otherwise.
+  capped?: boolean;
 };
 
 // Reported to `onRetry` before every sleep, so a caller (the effect wrapper)
 // can log progress without this module knowing about logging at all.
 export type HyperSyncRetryInfo = { attempt: number; status?: number; reason: string; waitMs: number };
+
+const DEFAULT_MAX_TRANSFERS = 100_000;
 
 type Params = {
   token: string;
@@ -29,6 +35,11 @@ type Params = {
   url?: string;
   retryDelayMs?: number;
   onRetry?: (info: HyperSyncRetryInfo) => void;
+  // Any non-quote token can be paired with a quote by anyone, so a spam token
+  // wrapping a real, old asset would otherwise replay that asset's entire
+  // chain history into memory. Stops paging once the collected transfer
+  // count would exceed this. Default 100k.
+  maxTransfers?: number;
 };
 
 type HyperSyncPage = {
@@ -238,6 +249,7 @@ export async function fetchTransferHistory(params: Params, fetchImpl: typeof fet
   const { token, toBlock, apiToken, onRetry } = params;
   const url = params.url ?? HYPERSYNC_URL;
   const retryDelayMs = params.retryDelayMs ?? 1000;
+  const maxTransfers = params.maxTransfers ?? DEFAULT_MAX_TRANSFERS;
   if (toBlock < 0) return { transfers: [], skipped: 0 };
   const endExclusive = toBlock + 1;
   const out: HistoricalTransfer[] = [];
@@ -269,6 +281,11 @@ export async function fetchTransferHistory(params: Params, fetchImpl: typeof fet
         if (!isErc20TransferLog(log)) {
           skipped += 1;
           continue;
+        }
+        // Stop as soon as one more would exceed the cap, mid-page if need be,
+        // so `out` itself never grows past maxTransfers entries in memory.
+        if (out.length >= maxTransfers) {
+          return { transfers: [], skipped, capped: true };
         }
         out.push({
           block: Number(log.block_number),

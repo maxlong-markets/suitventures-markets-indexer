@@ -1,6 +1,8 @@
 import { describe, it } from "vitest";
 import { createTestIndexer, type Address } from "envio";
+import { getAddress } from "viem";
 import { amountsForLiquidityDelta } from "../lib/liquidity";
+import denylist from "../../config/token-denylist.json" with { type: "json" };
 
 // Simulate items type their address-shaped fields (srcAddress, currency0/1, hooks,
 // sender, from) as the generated `Address` (`0x${string}`) rather than plain
@@ -105,6 +107,21 @@ describe("Initialize discovery", () => {
     t.expect(await indexer.Pool.get(id)).toBeUndefined();
     t.expect(await indexer.Token.get(ZERO)).toBeUndefined();
     t.expect(indexer.chains[4663].Token.addresses.map((a) => a.toLowerCase())).not.toContain(ZERO);
+  });
+
+  // FW4: a spam token can be paired with USDG or a stock by anyone. Without a
+  // denylist, tracking one paired with a real asset (WETH, a wrapped BTC, ...)
+  // would replay that asset's entire chain transfer history. Uses the first
+  // entry of the real generated config/token-denylist.json (see
+  // scripts/build-quotes.ts), so this exercises the actual production data.
+  it("creates no Pool, Token or registration for a denylisted token paired with USDG", async (t) => {
+    const indexer = createTestIndexer();
+    const denylisted = getAddress(denylist[0]!.address) as Address; // checksum for the Address-typed simulate field
+    const id = "0x" + "88".repeat(32);
+    await indexer.process({ chains: { 4663: { simulate: [init({ id, currency0: denylisted, currency1: USDG, hooks: ZERO })] } } });
+    t.expect(await indexer.Pool.get(id)).toBeUndefined();
+    t.expect(await indexer.Token.get(denylisted.toLowerCase())).toBeUndefined();
+    t.expect(indexer.chains[4663].Token.addresses.map((a) => a.toLowerCase())).not.toContain(denylisted.toLowerCase());
   });
 });
 

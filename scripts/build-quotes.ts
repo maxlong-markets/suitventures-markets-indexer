@@ -9,7 +9,9 @@ const ERC20 = parseAbi([
 ]);
 
 // Quotes Pons accepts that are not stock tokens. Add symbols here to exclude them.
-const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO", "WYFI", "SKHY", "BULL"]);
+// Matched case-insensitively: an on-chain symbol()'s exact casing isn't guaranteed
+// to match how it's written here.
+const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO", "WYFI", "SKHY", "BULL"].map((s) => s.toUpperCase()));
 const USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -17,6 +19,8 @@ type Row = {
   address: string; symbol: string; name: string; decimals: number;
   chainlinkProxy: string | null; chainlinkAggregator: string | null; chainlinkDecimals: number | null;
 };
+
+type DenylistRow = { address: string; symbol: string; reason: string };
 
 // Chainlink's published feed list (see data/chainlink-feeds-robinhood-2026-09-13.json).
 // Only the fields build-quotes reads are declared here.
@@ -72,6 +76,7 @@ const addresses = [...new Set(snapshot.map((p) => p.quoteToken.toLowerCase()))].
 const addressSet = new Set(addresses);
 
 const rows: Row[] = [];
+const denylist: DenylistRow[] = [];
 const skipped: string[] = [];
 for (const address of addresses) {
   const target = address as `0x${string}`;
@@ -90,7 +95,13 @@ for (const address of addresses) {
     skipped.push(address);
     continue;
   }
-  if (address !== USDG && EXCLUDED_SYMBOLS.has(symbol)) continue;
+  if (address !== USDG && EXCLUDED_SYMBOLS.has(symbol.toUpperCase())) {
+    // Not a stock token: anyone can still pair it with a quote on-chain, so it
+    // must be denylisted (src/lib/denylist.ts), not just left out of the quote
+    // allowlist here.
+    denylist.push({ address, symbol, reason: "non-stock pairing asset" });
+    continue;
+  }
   const prev = existing.get(address);
   // USDG's USD price is pinned at 1 by the spec even though a USDG Chainlink feed exists,
   // so it never gets a chainlinkProxy here.
@@ -119,6 +130,10 @@ for (const [address, prevRow] of existing) {
 rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
 writeFileSync("config/quotes.json", JSON.stringify(rows, null, 2) + "\n");
 console.log(`wrote ${rows.length} quotes`);
+
+denylist.sort((a, b) => a.symbol.localeCompare(b.symbol));
+writeFileSync("config/token-denylist.json", JSON.stringify(denylist, null, 2) + "\n");
+console.log(`wrote ${denylist.length} denylisted token(s): ${denylist.map((d) => d.symbol).join(", ")}`);
 if (skipped.length > 0) {
   console.log(`skipped ${skipped.length} address(es): ${skipped.join(", ")}`);
 }

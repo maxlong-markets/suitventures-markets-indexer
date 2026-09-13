@@ -243,4 +243,44 @@ describe("fetchTransferHistory", () => {
       vi.useRealTimers();
     }
   });
+
+  // FW4: the whole pre-registration history used to be held in memory with no
+  // bound at all. Any non-quote token paired with USDG or a stock is tracked
+  // (anyone can pair a spam token that way), so a WETH- or USDC-shaped pool
+  // would otherwise replay that asset's entire chain history and exhaust
+  // memory, which repeats on every restart and halts the indexer for good.
+  it("stops paging and returns capped: true once the transfer count would exceed maxTransfers", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify(page(
+        [
+          { block_number: 100, log_index: 0, topic1: pad(ZERO), topic2: pad(A), data: hex(1n) },
+          { block_number: 100, log_index: 1, topic1: pad(A), topic2: pad(B), data: hex(1n) },
+          { block_number: 100, log_index: 2, topic1: pad(B), topic2: pad(A), data: hex(1n) },
+        ],
+        [{ number: 100, timestamp: 100 }],
+        200,
+      )), { status: 200 });
+    });
+    const result = await fetchTransferHistory(
+      { token: TOKEN, toBlock: 199, apiToken: "tok", maxTransfers: 2 },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result).toEqual({ transfers: [], skipped: 0, capped: true });
+  });
+
+  it("does not cap a history at or under maxTransfers", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify(page(
+        [{ block_number: 100, log_index: 0, topic1: pad(ZERO), topic2: pad(A), data: hex(1n) }],
+        [{ number: 100, timestamp: 100 }],
+        200,
+      )), { status: 200 });
+    });
+    const result = await fetchTransferHistory(
+      { token: TOKEN, toBlock: 199, apiToken: "tok", maxTransfers: 1 },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(result.capped).toBeUndefined();
+    expect(result.transfers).toHaveLength(1);
+  });
 });
