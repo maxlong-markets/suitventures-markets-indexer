@@ -45,6 +45,7 @@ type QuoteFeed {
   quote: Quote!
   decimals: Int!
   proxy: String!
+  active: Boolean!      # false once a proxy rotates away from this aggregator
 }
 
 type Token {

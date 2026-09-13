@@ -1,31 +1,40 @@
 import { describe, it } from "vitest";
 import { createTestIndexer, type Address } from "envio";
+import { getAddress } from "viem";
 import { QUOTES } from "../lib/quotes";
 
-const feedQuote = QUOTES.find((q) => q.chainlinkProxy && q.chainlinkAggregator && q.chainlinkDecimals !== null);
-const NEW_AGG = "0x9999999999999999999999999999999999999999" as Address;
-
-// Ruling 10: `ChainlinkAggregator` is statically configured in config.yaml with
-// `start_block: 55799704`, and Envio's simulate source gates every item by the
-// registration's own start block (the same mechanism token.test.ts's ruling-6 note
-// and poolManager.test.ts's ruling-11 note describe for dynamically-registered
-// contracts) plus the address-set's start-block group for statically-configured
-// ones. Below that block, an `AnswerUpdated` for a configured aggregator is
-// filtered out before any handler runs. `BASE_BLOCK` sits comfortably above it;
-// each item's block is `BASE_BLOCK` plus the brief's original small block number
-// (10, 20, 21), which keeps the brief's relative order (the rotation's
-// `AggregatorConfirmed` before the rotated aggregator's first `AnswerUpdated`)
-// while clearing the start block. Block timestamps follow the
-// `1_700_000_000 + block` convention already used across this suite (e.g.
-// token.test.ts, poolManager.test.ts); no assertion depends on their exact value.
+// Simulated Chainlink items must use blocks at or above the ChainlinkAggregator start_block
+// (55799704), because the simulator counts a static contract only from its start block.
 const BASE_BLOCK = 55_800_000;
 
-// Simulate items type address-shaped fields (srcAddress, address-valued params) as
-// the generated `Address` (`0x${string}`) rather than plain `string` — the same
-// type-only cast token.test.ts and poolManager.test.ts apply to their address
-// constants. `feedQuote`'s `chainlinkProxy`/`chainlinkAggregator` are plain
-// `string | null` on `QuoteRow`, so they need the same cast where used as
-// simulate-item address fields; this changes no value, only the static type.
+const feedQuotes = QUOTES.filter((q) => q.chainlinkProxy && q.chainlinkAggregator && q.chainlinkDecimals !== null);
+const feedQuote = feedQuotes[0];
+
+// EIP-55 checksummed, not config's lowercase casing: a missing `.toLowerCase()` in the handler
+// would fail these tests instead of passing by coincidence.
+const AGGREGATOR = feedQuote ? getAddress(feedQuote.chainlinkAggregator!) : undefined;
+const PROXY = feedQuote ? getAddress(feedQuote.chainlinkProxy!) : undefined;
+const NEW_AGG = getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+
+function answerUpdated(srcAddress: Address, current: bigint, roundId: bigint, updatedAt: bigint, block: number) {
+  return {
+    contract: "ChainlinkAggregator" as const,
+    event: "AnswerUpdated" as const,
+    srcAddress,
+    block: { number: block, timestamp: 1_700_000_000 + block },
+    params: { current, roundId, updatedAt },
+  };
+}
+
+function aggregatorConfirmed(srcAddress: Address, previous: Address, latest: Address, block: number) {
+  return {
+    contract: "ChainlinkProxy" as const,
+    event: "AggregatorConfirmed" as const,
+    srcAddress,
+    block: { number: block, timestamp: 1_700_000_000 + block },
+    params: { previous, latest },
+  };
+}
 
 describe.skipIf(!feedQuote)("Chainlink", () => {
   it("writes a QuotePrice from AnswerUpdated on a configured aggregator", async (t) => {
@@ -33,23 +42,23 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
     const dec = feedQuote!.chainlinkDecimals!;
     await indexer.process({
       chains: {
-        4663: {
-          simulate: [
-            {
-              contract: "ChainlinkAggregator" as const,
-              event: "AnswerUpdated" as const,
-              srcAddress: feedQuote!.chainlinkAggregator! as Address,
-              block: { number: BASE_BLOCK + 10, timestamp: 1_700_000_000 + BASE_BLOCK + 10 },
-              params: { current: BigInt(Math.round(224.4 * 10 ** dec)), roundId: 1n, updatedAt: 1_700_000_005n },
-            },
-          ],
-        },
+        4663: { simulate: [answerUpdated(AGGREGATOR!, BigInt(Math.round(224.4 * 10 ** dec)), 1n, 1_700_000_005n, BASE_BLOCK + 10)] },
       },
     });
     const price = await indexer.QuotePrice.getOrThrow(feedQuote!.address);
     t.expect(price.usdPrice).toBeCloseTo(224.4, 6);
     t.expect(price.updatedAt).toBe(1_700_000_005);
-    t.expect(price.aggregator).toBe(feedQuote!.chainlinkAggregator);
+    t.expect(price.aggregator).toBe(AGGREGATOR!.toLowerCase());
+  });
+
+  it("writes no QuotePrice for a non-positive answer, though the feed row may still be created", async (t) => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: { 4663: { simulate: [answerUpdated(AGGREGATOR!, 0n, 1n, 1_700_000_006n, BASE_BLOCK + 11)] } },
+    });
+    t.expect(await indexer.QuotePrice.get(feedQuote!.address)).toBeUndefined();
+    const feed = await indexer.QuoteFeed.getOrThrow(AGGREGATOR!.toLowerCase());
+    t.expect(feed.active).toBe(true);
   });
 
   it("registers a rotated aggregator and maps it to the quote", async (t) => {
@@ -59,29 +68,63 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
       chains: {
         4663: {
           simulate: [
-            {
-              contract: "ChainlinkProxy" as const,
-              event: "AggregatorConfirmed" as const,
-              srcAddress: feedQuote!.chainlinkProxy! as Address,
-              block: { number: BASE_BLOCK + 20, timestamp: 1_700_000_000 + BASE_BLOCK + 20 },
-              params: { previous: feedQuote!.chainlinkAggregator! as Address, latest: NEW_AGG },
-            },
-            {
-              contract: "ChainlinkAggregator" as const,
-              event: "AnswerUpdated" as const,
-              srcAddress: NEW_AGG,
-              block: { number: BASE_BLOCK + 21, timestamp: 1_700_000_000 + BASE_BLOCK + 21 },
-              params: { current: BigInt(Math.round(230 * 10 ** dec)), roundId: 2n, updatedAt: 1_700_000_021n },
-            },
+            aggregatorConfirmed(PROXY!, AGGREGATOR!, NEW_AGG, BASE_BLOCK + 20),
+            answerUpdated(NEW_AGG, BigInt(Math.round(230 * 10 ** dec)), 2n, 1_700_000_021n, BASE_BLOCK + 21),
           ],
         },
       },
     });
-    t.expect(indexer.chains[4663].ChainlinkAggregator.addresses.map((a) => a.toLowerCase())).toContain(NEW_AGG);
-    const feed = await indexer.QuoteFeed.getOrThrow(NEW_AGG);
+    t.expect(indexer.chains[4663].ChainlinkAggregator.addresses.map((a) => a.toLowerCase())).toContain(
+      NEW_AGG.toLowerCase(),
+    );
+    const feed = await indexer.QuoteFeed.getOrThrow(NEW_AGG.toLowerCase());
     t.expect(feed.quote_id).toBe(feedQuote!.address);
+    t.expect(feed.decimals).toBe(dec);
+    t.expect(feed.proxy).toBe(PROXY!.toLowerCase());
+    t.expect(feed.active).toBe(true);
     const price = await indexer.QuotePrice.getOrThrow(feedQuote!.address);
     t.expect(price.usdPrice).toBeCloseTo(230, 6);
-    t.expect(price.aggregator).toBe(NEW_AGG);
+    t.expect(price.aggregator).toBe(NEW_AGG.toLowerCase());
+  });
+
+  it("keeps the new aggregator's price when the rotated-away aggregator answers again later", async (t) => {
+    const indexer = createTestIndexer();
+    const dec = feedQuote!.chainlinkDecimals!;
+    await indexer.process({
+      chains: {
+        4663: {
+          simulate: [
+            aggregatorConfirmed(PROXY!, AGGREGATOR!, NEW_AGG, BASE_BLOCK + 20),
+            answerUpdated(NEW_AGG, BigInt(Math.round(230 * 10 ** dec)), 2n, 1_700_000_021n, BASE_BLOCK + 21),
+            // The old aggregator is still statically registered and can still emit; its feed
+            // row must now be inactive so this late answer doesn't win.
+            answerUpdated(AGGREGATOR!, BigInt(Math.round(225 * 10 ** dec)), 3n, 1_700_000_022n, BASE_BLOCK + 22),
+          ],
+        },
+      },
+    });
+    const price = await indexer.QuotePrice.getOrThrow(feedQuote!.address);
+    t.expect(price.usdPrice).toBeCloseTo(230, 6);
+    t.expect(price.aggregator).toBe(NEW_AGG.toLowerCase());
+    const oldFeed = await indexer.QuoteFeed.getOrThrow(AGGREGATOR!.toLowerCase());
+    t.expect(oldFeed.active).toBe(false);
+    const newFeed = await indexer.QuoteFeed.getOrThrow(NEW_AGG.toLowerCase());
+    t.expect(newFeed.active).toBe(true);
+  });
+
+  it("maps a second, distinct aggregator to its own quote rather than the first", async (t) => {
+    const indexer = createTestIndexer();
+    const second = feedQuotes[1]!;
+    const dec = second.chainlinkDecimals!;
+    const aggregator = getAddress(second.chainlinkAggregator!);
+    await indexer.process({
+      chains: {
+        4663: { simulate: [answerUpdated(aggregator, BigInt(Math.round(88.8 * 10 ** dec)), 1n, 1_700_000_030n, BASE_BLOCK + 30)] },
+      },
+    });
+    const price = await indexer.QuotePrice.getOrThrow(second.address);
+    t.expect(price.usdPrice).toBeCloseTo(88.8, 6);
+    t.expect(price.aggregator).toBe(aggregator.toLowerCase());
+    t.expect(await indexer.QuotePrice.get(feedQuote!.address)).toBeUndefined();
   });
 });
