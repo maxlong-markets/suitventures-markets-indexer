@@ -1,7 +1,461 @@
 [
-  { "address": "0x5fc5360d0400a0fd4f2af552add042d716f1d168", "symbol": "USDG", "name": "Global Dollar", "decimals": 6, "chainlinkProxy": null, "chainlinkAggregator": null, "chainlinkDecimals": null },
-  { "address": "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec", "symbol": "NVDA", "name": "NVIDIA Robinhood Token", "decimals": 18, "chainlinkProxy": null, "chainlinkAggregator": null, "chainlinkDecimals": null },
-  { "address": "0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a", "symbol": "PLTR", "name": "Palantir Robinhood Token", "decimals": 18, "chainlinkProxy": null, "chainlinkAggregator": null, "chainlinkDecimals": null },
-  { "address": "0x322f0929c4625ed5bad873c95208d54e1c003b2d", "symbol": "TSLA", "name": "Tesla Robinhood Token", "decimals": 18, "chainlinkProxy": null, "chainlinkAggregator": null, "chainlinkDecimals": null },
-  { "address": "0xaf3d76f1834a1d425780943c99ea8a608f8a93f9", "symbol": "AAPL", "name": "Apple Robinhood Token", "decimals": 18, "chainlinkProxy": null, "chainlinkAggregator": null, "chainlinkDecimals": null }
+  {
+    "address": "0xaf3d76f1834a1d425780943c99ea8a608f8a93f9",
+    "symbol": "AAPL",
+    "name": "Apple • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x6b22a786baa607d76728168703a39ea9c99f2cd0",
+    "chainlinkAggregator": "0xbb11a21267cfdb63d4935d99a499133dd1744acb",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x05a3d1cd21d0c88145e82600e62e7e496e0f222b",
+    "symbol": "AMC",
+    "name": "AMC Entertainment • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x86923f96303d656e4aa86d9d42d1e57ad2023fdc",
+    "symbol": "AMD",
+    "name": "AMD • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x943a29e7ae51a4798823ca9eed2ed533b2a22c72",
+    "chainlinkAggregator": "0xdad54b8ee51af258e5a6faa9a84a3300f4775f7d",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x12f190a9f9d7d37a250758b26824b97ce941bf54",
+    "symbol": "AMZN",
+    "name": "Amazon • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0xd5a1508ced74c084ebf3cbe853e2c968fb2a651c",
+    "chainlinkAggregator": "0x93503dfc97157cdb8aadccaf70452621d598fdeb",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xad25ac6c84d497db898fa1e8387bf6af3532a1c4",
+    "symbol": "BABA",
+    "name": "Alibaba • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x62cc8f9b5f56a33c9c8a60c8b92779f523c4e984",
+    "chainlinkAggregator": "0xff5f85e4888782e66f1dd9cabadf4822fbeb1439",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x48e39e56acdba37b09020c0b734a613c9a2f100a",
+    "symbol": "BB",
+    "name": "Blackberry • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x822cc93ffd030293e9842c30bbd678f530701867",
+    "symbol": "BE",
+    "name": "Bloom Energy • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x6330d8c3178a418788df01a47479c0ce7ccf450b",
+    "symbol": "COIN",
+    "name": "Coinbase • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0xa3a468a452940b7d6b69991207b508c609a98ef2",
+    "chainlinkAggregator": "0x30398b0b0df82a009bb2d507bc7fe1dc6d3ca294",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x4ea005168d7f09a7a0ba9d1def21a479950e44c2",
+    "symbol": "COST",
+    "name": "Costco • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xdf0992e440dd0be65bd8439b609d6d4366bf1cb5",
+    "symbol": "CRCL",
+    "name": "Circle Internet Group • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x6652edf64ba3731c4f2d3ce821a0fb1f1f6b482a",
+    "chainlinkAggregator": "0x901d8df245e48dfc82d6483fc45b5be6ddc5281a",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x941ae714ec6d8130c7b75d67160ca08f1e7d11dd",
+    "symbol": "DELL",
+    "name": "Dell • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x1d11f0496982706c5e14a514d4e79f2e6bde4516",
+    "symbol": "DJT",
+    "name": "Trump Media & Technology Group • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x25c288e6d899b9bc30160965ad9644c67e73be0c",
+    "symbol": "F",
+    "name": "Ford Motor • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x41f4267525a8aff329540ef24fd83d9044758b33",
+    "symbol": "FIG",
+    "name": "Figma • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xc9a981fee1f9dec688bb123ccdecc63d0debfc4e",
+    "symbol": "GLD",
+    "name": "SPDR Gold Trust • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x1b0e319c6a659f002271b69db8a7df2f911c153e",
+    "symbol": "GME",
+    "name": "GameStop • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x27c71df6a64fb476468edf256cf72c038bab5b67",
+    "chainlinkAggregator": "0xf83cde62d1cd90de8d2bf3332b90c590985ad679",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3",
+    "symbol": "GOOGL",
+    "name": "Alphabet Class A • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0xf6f373a037c30f0e5010d854385ca89185ae638b",
+    "chainlinkAggregator": "0x11ed6d598ef565dda86fafe7e779303e7cc6b2bd",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xccee82fe024c36fa15e1005ede3e9e4787e23d09",
+    "symbol": "HIMS",
+    "name": "Hims & Hers Health • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x980dcf6766fa79f5cf0c4aadb3ab477ff15a9619",
+    "symbol": "IBM",
+    "name": "IBM • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xacef2e09adb47ad6abebad9ff06689e60615c2b6",
+    "symbol": "INDA",
+    "name": "iShares MSCI India ETF • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x03dfbbe0ac4e7bcdafd08ed41a400326b77d8c80",
+    "symbol": "JNJ",
+    "name": "Johnson & Johnson • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x8005d266423c7ea827372c9c864491e5786600ea",
+    "symbol": "LLY",
+    "name": "Eli Lilly • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x4e62068525ab11fe768e29dfd00ef909b9803016",
+    "symbol": "LULU",
+    "name": "Lululemon • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xc0d6457c16cc70d6790dd43521c899c87ce02f35",
+    "symbol": "META",
+    "name": "Meta Platforms • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x7c38c00c30bee9378381e7b6135d7283356d71b1",
+    "chainlinkAggregator": "0xc190b6164b9e320a6400cdab0085a2e0e2b9738e",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x43b07d15ce533bec5476d70c22a78a1b2b662155",
+    "symbol": "MRNA",
+    "name": "Moderna • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x62fd0668e10d8b72339be2dcf7643001688ff13b",
+    "symbol": "MRVL",
+    "name": "Marvell Technology • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xe93237c50d904957cf27e7b1133b510c669c2e74",
+    "symbol": "MSFT",
+    "name": "Microsoft • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x45c3c877c15e6ba2ebb19ea114ea508d14c1af2e",
+    "chainlinkAggregator": "0xc3b117f52cf17dd4369eaf5eaf7cf0e2f91b4e30",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xec262a75e413fafd0df80480274532c79d42da09",
+    "symbol": "MSTR",
+    "name": "Strategy Inc. • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x396118bdfb181e6240e74d243f266b061c0edc3d",
+    "chainlinkAggregator": "0x55bd01f666c99e4590e084fdeff88041bb50ccd1",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xff080c8ce2e5feadaca0da81314ae59d232d4afd",
+    "symbol": "MU",
+    "name": "Micron Technology • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x425eefdcf05ed6526c3ce61af99429a228a6d596",
+    "chainlinkAggregator": "0xa088fad0a0a62693af068e2edb80b1578c8a9365",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xe0444ef8bf4ed74f74fd73686e2ddf4c1c5591e8",
+    "symbol": "NFLX",
+    "name": "Netflix • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x408c14038a04f7bd235329e26d2bf569ee20e250",
+    "symbol": "NU",
+    "name": "Nu • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec",
+    "symbol": "NVDA",
+    "name": "NVIDIA • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x379ec4f7c378f34a1b47e4f3cbebcbac3e8e9f15",
+    "chainlinkAggregator": "0xc9d16e4f2569b9e3ea0468fd85844953713dc2a2",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x7066a64c24e4206cd62e83bf198c1e7eb361f51e",
+    "symbol": "PFE",
+    "name": "Pfizer • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a",
+    "symbol": "PLTR",
+    "name": "Palantir Technologies • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x820abedff239034956b7a9d2f0a331f9f075eb4c",
+    "chainlinkAggregator": "0x315afd0f71d5407b99ad19ab001a67af40fbaaf4",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xd5f3879160bc7c32ebb4dc785f8a4f505888de68",
+    "symbol": "QQQ",
+    "name": "Invesco QQQ • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x80901d846d5d7b030f26b480776ee3b29374c2ae",
+    "chainlinkAggregator": "0x25e996ce8b3529885d429241156e83e7b7744049",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xf0c4bf4c582cb3836e98394b1d4e7b7281101be8",
+    "symbol": "RBLX",
+    "name": "Roblox • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x05b37fb53a299a1b874a619e1c4c404d52c36f4c",
+    "symbol": "RDDT",
+    "name": "Reddit • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xb1bf26c1d20ff267a4f93550d1e0d06ac40a114b",
+    "symbol": "RIVN",
+    "name": "Rivian Automotive • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x92fd66527192e3e61d4ddd13322aa222de86f9b5",
+    "symbol": "SGOV",
+    "name": "iShares 0-3 Month Treasury Bond • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xf53f66751b1eff985311b693531e3290f600c410",
+    "symbol": "SHOP",
+    "name": "Shopify • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x411efb0e7f985935daec3d4c3ebaea0d0ad7d89f",
+    "symbol": "SLV",
+    "name": "iShares Silver Trust • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x209b73908e92ae021826ed79609845451ecba2ce",
+    "chainlinkAggregator": "0xcdf6f7043b3af6afa0caaace1230b355096b5386",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0xf6589f11bc40b669e584073f428b05562f568733",
+    "symbol": "SNAP",
+    "name": "Snap • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xb90a19ff0af67f7779aff50a882a9cff42446400",
+    "symbol": "SNDK",
+    "name": "Sandisk Corporation • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0xfb133fa4b7b385802b693a293606682df47109a3",
+    "chainlinkAggregator": "0x7b2fdfcea772f093dd33b3acf8ee294b368f6c23",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea",
+    "symbol": "SPCX",
+    "name": "Space Exploration Technologies Corp. Class A Common Stock • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0xb265810950ba6c5c0ff821c9963014a56fd8bffb",
+    "chainlinkAggregator": "0x5eaa223c585f40cdca2d119ea91b97c491245631",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x117cc2133c37b721f49de2a7a74833232b3b4c0c",
+    "symbol": "SPY",
+    "name": "SPDR S&P 500 ETF Trust • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x319724394d3a0e3669269846abe664cd621f9f6a",
+    "chainlinkAggregator": "0x78bcb218fa04b9b3a278ebc865ed320bf8defbac",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x322f0929c4625ed5bad873c95208d54e1c003b2d",
+    "symbol": "TSLA",
+    "name": "Tesla • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x4a1166a659a55625345e9515b32adecea5547c38",
+    "chainlinkAggregator": "0x7a6b81ba7fbcb90104d8c496158cf383cd7233b1",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x58ffe4a942d3885baa22d7520691f611ef09e7aa",
+    "symbol": "TSM",
+    "name": "Taiwan Semiconductor Manufacturing • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x874cf94aa8ec88fd9560094dd065f2fb3e41fc2f",
+    "chainlinkAggregator": "0x2b3a9a18998e9464760658233ab093e6aebf45d0",
+    "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x5e81213613b6b86eab4c6c50d718d34359459786",
+    "symbol": "TTWO",
+    "name": "Take-Two Interactive Software • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xf23250dac154d05bb671cb0d0ebef3c635c79ce2",
+    "symbol": "UPS",
+    "name": "UPS • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "symbol": "USDG",
+    "name": "Global Dollar",
+    "decimals": 6,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
+    "address": "0xa30fa36db767ad9ed3f7a60fc79526fb4d56d344",
+    "symbol": "USO",
+    "name": "United States Oil Fund • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": "0x75a9c76ef439e2c7c2e5a34ab105ecfe3766431c",
+    "chainlinkAggregator": "0xa6ac45e27d19f91c55109191d71cfba4a9f5fbe1",
+    "chainlinkDecimals": 8
+  }
 ]

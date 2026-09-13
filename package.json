@@ -10,9 +10,9 @@
     "start": "envio start",
     "test": "vitest run --test-timeout=20000 --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "block-at": "node scripts/block-at.ts",
-    "build-quotes": "node scripts/build-quotes.ts",
-    "resolve-feeds": "node scripts/resolve-feeds.ts"
+    "block-at": "node --env-file-if-exists=.env scripts/block-at.ts",
+    "build-quotes": "node --env-file-if-exists=.env scripts/build-quotes.ts",
+    "resolve-feeds": "node --env-file-if-exists=.env scripts/resolve-feeds.ts"
   },
   "dependencies": {
     "@uniswap/v3-sdk": "^3.20.0",
