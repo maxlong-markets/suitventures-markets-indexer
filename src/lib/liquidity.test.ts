@@ -37,4 +37,12 @@ describe("amountsForLiquidityDelta", () => {
     expect(amount0 < 0n).toBe(true);
     expect(amount1 < 0n).toBe(true);
   });
+  it("throws for a zero delta with an out-of-range tick", () => {
+    expect(() => amountsForLiquidityDelta(Q96, MIN_TICK - 1, 100, 0n)).toThrow();
+    expect(() => amountsForLiquidityDelta(Q96, -100, MAX_TICK + 1, 0n)).toThrow();
+  });
+  it("throws for inverted or equal ticks", () => {
+    expect(() => amountsForLiquidityDelta(Q96, 100, -100, L)).toThrow();
+    expect(() => amountsForLiquidityDelta(Q96, 100, 100, L)).toThrow();
+  });
 });

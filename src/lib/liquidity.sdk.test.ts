@@ -111,15 +111,18 @@ function randomTickPair(rng: () => number, aligned: boolean): [number, number] {
   return a < b ? [a, b] : [b, a];
 }
 
-/** sqrtPriceX96 at tick `t` plus a random offset strictly below the ratio at
- * tick t+1, so the price still corresponds to tick t exactly. */
-function priceNearTick(rng: () => number, t: number): bigint {
+/** sqrtPriceX96 at tick `t` plus an offset strictly below the ratio at tick t+1,
+ * so the price still corresponds to tick t exactly. The offset is drawn from the
+ * whole span (256 random bits, reduced mod the span, so every magnitude of span
+ * is reachable) rather than a fixed narrow bit width; `force` pins it to the two
+ * extremes (0 and span-1) to exercise the branch boundaries directly. */
+function priceNearTick(rng: () => number, t: number, force?: "zero" | "max"): bigint {
   const lo = toBig(TickMath.getSqrtRatioAtTick(t));
   if (t >= MAX_TICK) return lo;
   const hi = toBig(TickMath.getSqrtRatioAtTick(t + 1));
   const span = hi - lo;
   if (span <= 0n) return lo;
-  const offset = randomBigIntBits(rng, 64) % span;
+  const offset = force === "zero" ? 0n : force === "max" ? span - 1n : randomBigIntBits(rng, 256) % span;
   return lo + offset;
 }
 
@@ -187,14 +190,16 @@ describe("MIN_SQRT_RATIO / MAX_SQRT_RATIO vs the SDK", () => {
 });
 
 describe("amountsForLiquidityDelta vs the SDK-based reference", () => {
-  it("matches referenceAmounts for 5000 random cases (seed " + SEED + ")", () => {
+  it("matches referenceAmounts for 5000 random cases (seed " + (SEED + 1) + ")", () => {
     const rng = mulberry32(SEED + 1);
     for (let i = 0; i < 5000; i++) {
       const aligned = i % 2 === 0;
       const [tickLower, tickUpper] = randomTickPair(rng, aligned);
       const anchor = rng() < 0.5 ? tickLower : tickUpper;
       const t = clampTick(anchor + randomInt(rng, -4, 4));
-      const sqrtPriceX96 = priceNearTick(rng, t);
+      // Force the offset to the two span extremes periodically to exercise those boundaries directly.
+      const force = i % 250 === 0 ? "zero" : i % 250 === 125 ? "max" : undefined;
+      const sqrtPriceX96 = priceNearTick(rng, t, force);
       const liquidityDelta = randomLiquidityDelta(rng);
 
       const ctx = `case ${i}: tickLower=${tickLower} tickUpper=${tickUpper} t=${t} sqrtPriceX96=${sqrtPriceX96} liquidityDelta=${liquidityDelta}`;
@@ -235,8 +240,11 @@ describe("amountsForLiquidityDelta vs the SDK-based reference", () => {
 
 describe("validation", () => {
   it("throws on ticks outside [MIN_TICK, MAX_TICK]", () => {
-    expect(() => amountsForLiquidityDelta(MIN_SQRT_RATIO, MIN_TICK - 1, 1000, 10n ** 18n)).toThrow();
-    expect(() => amountsForLiquidityDelta(MIN_SQRT_RATIO, -1000, MAX_TICK + 1, 10n ** 18n)).toThrow();
+    // A clearly valid, mid-range price, so a throw here can only come from the tick check
+    // (MIN_SQRT_RATIO would leave the price check itself as a possible, ambiguous cause).
+    const midPrice = 2n ** 96n;
+    expect(() => amountsForLiquidityDelta(midPrice, MIN_TICK - 1, 1000, 10n ** 18n)).toThrow();
+    expect(() => amountsForLiquidityDelta(midPrice, -1000, MAX_TICK + 1, 10n ** 18n)).toThrow();
     expect(() => getSqrtRatioAtTick(MIN_TICK - 1)).toThrow();
     expect(() => getSqrtRatioAtTick(MAX_TICK + 1)).toThrow();
   });
@@ -249,5 +257,12 @@ describe("validation", () => {
   it("throws on a price at or above MAX_SQRT_RATIO", () => {
     expect(() => amountsForLiquidityDelta(MAX_SQRT_RATIO, -1000, 1000, 10n ** 18n)).toThrow();
     expect(() => amountsForLiquidityDelta(MAX_SQRT_RATIO + 1n, -1000, 1000, 10n ** 18n)).toThrow();
+  });
+
+  it("accepts the sqrt-ratio bounds exactly: MIN_SQRT_RATIO and MAX_SQRT_RATIO - 1n, but not one step outside", () => {
+    expect(() => amountsForLiquidityDelta(MIN_SQRT_RATIO, -1000, 1000, 10n ** 18n)).not.toThrow();
+    expect(() => amountsForLiquidityDelta(MAX_SQRT_RATIO - 1n, -1000, 1000, 10n ** 18n)).not.toThrow();
+    expect(() => amountsForLiquidityDelta(MIN_SQRT_RATIO - 1n, -1000, 1000, 10n ** 18n)).toThrow();
+    expect(() => amountsForLiquidityDelta(MAX_SQRT_RATIO, -1000, 1000, 10n ** 18n)).toThrow();
   });
 });

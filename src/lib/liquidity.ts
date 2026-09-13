@@ -1,8 +1,8 @@
 // Tick / sqrt-price math, ported to native bigint from the installed
 // @uniswap/v3-sdk's own compiled output. This module has zero runtime
-// dependency on @uniswap/v3-sdk or jsbi: envio's tsx-based handler loader
-// cannot load @uniswap/v3-sdk's ESM build (see task-8-report.md), so it must
-// not appear anywhere in the handler import graph.
+// dependency on @uniswap/v3-sdk or jsbi: envio's tsx handler loader cannot
+// import @uniswap/v3-sdk's ESM build, so it must not appear anywhere in the
+// handler import graph.
 //
 // Ported from (this project's installed @uniswap/v3-sdk, version 3.31.3):
 //   node_modules/@uniswap/v3-sdk/dist/esm/src/utils/tickMath.js
@@ -119,10 +119,20 @@ export function amountsForLiquidityDelta(
   tickUpper: number,
   liquidityDelta: bigint,
 ): { amount0: bigint; amount1: bigint } {
-  // Validated unconditionally (even for a zero liquidityDelta, which short-circuits
-  // below): a zero or out-of-range price must still throw, matching Task 8 ruling 7.
+  // Validated unconditionally, before the zero-liquidityDelta shortcut below: a caller
+  // passing a zero delta alongside a nonsensical price or tick range is a bug worth
+  // surfacing immediately, not a no-op to silently accept.
   if (sqrtPriceX96 < MIN_SQRT_RATIO || sqrtPriceX96 >= MAX_SQRT_RATIO) {
     throw new Error(`sqrtPriceX96 out of range [${MIN_SQRT_RATIO}, ${MAX_SQRT_RATIO}): ${sqrtPriceX96}`);
+  }
+  if (!Number.isInteger(tickLower) || tickLower < MIN_TICK || tickLower > MAX_TICK) {
+    throw new Error(`tickLower out of range [${MIN_TICK}, ${MAX_TICK}]: ${tickLower}`);
+  }
+  if (!Number.isInteger(tickUpper) || tickUpper < MIN_TICK || tickUpper > MAX_TICK) {
+    throw new Error(`tickUpper out of range [${MIN_TICK}, ${MAX_TICK}]: ${tickUpper}`);
+  }
+  if (tickLower >= tickUpper) {
+    throw new Error(`tickLower must be less than tickUpper: ${tickLower} >= ${tickUpper}`);
   }
   if (liquidityDelta === 0n) return { amount0: 0n, amount1: 0n };
   const adding = liquidityDelta > 0n;
