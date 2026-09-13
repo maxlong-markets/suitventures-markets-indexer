@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isQuote, quoteRow, QUOTE_ADDRESSES, quoteForFeed } from "./quotes";
+import { isQuote, quoteRow, QUOTE_ADDRESSES, quoteForFeed, validateQuotes, type QuoteRow } from "./quotes";
 
 describe("quotes", () => {
   it("recognises USDG and NVDA regardless of case", () => {
@@ -27,5 +27,50 @@ describe("quotes", () => {
     expect(quoteForFeed(nvda.chainlinkProxy!.toUpperCase())?.symbol).toBe("NVDA");
     expect(quoteForFeed(nvda.chainlinkAggregator!)?.symbol).toBe("NVDA");
     expect(quoteForFeed("0x1111111111111111111111111111111111111111")).toBeUndefined();
+  });
+});
+
+// FW10: a malformed config/quotes.json (a duplicate address, a bad decimals
+// value, a one-sided Chainlink pairing, or a missing/misconfigured USDG row)
+// must fail the indexer at startup, not silently produce wrong prices or a
+// broken lookup later. validateQuotes is the pure function the module-level
+// call runs against the real file; these tests exercise it directly with
+// fabricated rows instead of editing the real config.
+describe("validateQuotes", () => {
+  const USDG_ROW: QuoteRow = {
+    address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    symbol: "USDG", name: "Global Dollar", decimals: 6,
+    chainlinkProxy: null, chainlinkAggregator: null, chainlinkDecimals: null,
+  };
+  const STOCK_ROW: QuoteRow = {
+    address: "0x0000000000000000000000000000000000000001",
+    symbol: "AAPL", name: "Apple", decimals: 18,
+    chainlinkProxy: "0xaaaa000000000000000000000000000000000a",
+    chainlinkAggregator: "0xbbbb000000000000000000000000000000000b",
+    chainlinkDecimals: 8,
+  };
+
+  it("accepts a well-formed allowlist", () => {
+    expect(() => validateQuotes([USDG_ROW, STOCK_ROW])).not.toThrow();
+  });
+  it("throws on a duplicate address", () => {
+    expect(() => validateQuotes([USDG_ROW, STOCK_ROW, { ...STOCK_ROW, symbol: "DUPE" }])).toThrow();
+  });
+  it("throws when decimals is not an integer from 0 to 255", () => {
+    expect(() => validateQuotes([USDG_ROW, { ...STOCK_ROW, decimals: 256 }])).toThrow();
+    expect(() => validateQuotes([USDG_ROW, { ...STOCK_ROW, decimals: -1 }])).toThrow();
+    expect(() => validateQuotes([USDG_ROW, { ...STOCK_ROW, decimals: 1.5 }])).toThrow();
+  });
+  it("throws when chainlinkProxy is set without chainlinkAggregator", () => {
+    expect(() => validateQuotes([USDG_ROW, { ...STOCK_ROW, chainlinkAggregator: null }])).toThrow();
+  });
+  it("throws when chainlinkAggregator is set without chainlinkProxy", () => {
+    expect(() => validateQuotes([USDG_ROW, { ...STOCK_ROW, chainlinkProxy: null }])).toThrow();
+  });
+  it("throws when the USDG row is missing", () => {
+    expect(() => validateQuotes([STOCK_ROW])).toThrow();
+  });
+  it("throws when USDG's decimals aren't 6", () => {
+    expect(() => validateQuotes([{ ...USDG_ROW, decimals: 18 }, STOCK_ROW])).toThrow();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { originFor } from "./origin";
+import { originFor, validateCurated } from "./origin";
 import { DOPPLER_HOOK, PONS_MEME_HOOK, ZERO_ADDRESS } from "./constants";
 
 describe("originFor", () => {
@@ -17,5 +17,20 @@ describe("originFor", () => {
   it("lets the curated list override the label", () => {
     // config/curated-pools.json contains this fixture id
     expect(originFor("0x00000000000000000000000000000000000000000000000000000000000000ff", ZERO_ADDRESS)).toBe("SUIT");
+  });
+});
+
+// FW10: a typo'd origin value in config/curated-pools.json (a value that
+// isn't one of the enum's real cases) must fail the indexer at startup
+// instead of silently producing a Token/Pool row GraphQL can't even encode.
+describe("validateCurated", () => {
+  it("accepts every real origin value", () => {
+    expect(() => validateCurated({ a: "LONG", b: "Pons", c: "Uniswap", d: "Other", e: "SUIT", f: "SV" })).not.toThrow();
+  });
+  it("throws on a value that isn't a real origin", () => {
+    expect(() => validateCurated({ a: "SUITT" })).toThrow();
+  });
+  it("throws on a lowercase near-miss of a real origin", () => {
+    expect(() => validateCurated({ a: "long" })).toThrow();
   });
 });

@@ -3,6 +3,23 @@ import { DOPPLER_HOOK, PONS_MEME_HOOK, ZERO_ADDRESS } from "./constants";
 
 export type Origin = "LONG" | "Pons" | "Uniswap" | "Other" | "SUIT" | "SV";
 
+const VALID_ORIGINS: ReadonlySet<string> = new Set<Origin>(["LONG", "Pons", "Uniswap", "Other", "SUIT", "SV"]);
+
+/**
+ * Throws when a curated override names a value outside the Origin enum: a
+ * typo there would otherwise sit in a Token/Pool row that the generated
+ * GraphQL schema can't even encode, surfacing as an opaque error far from
+ * the actual mistake.
+ */
+export function validateCurated(map: Record<string, string>): void {
+  for (const [id, value] of Object.entries(map)) {
+    if (!VALID_ORIGINS.has(value)) {
+      throw new Error(`config/curated-pools.json: ${id} has an invalid origin ${JSON.stringify(value)}`);
+    }
+  }
+}
+validateCurated(curated as Record<string, string>);
+
 const CURATED = new Map<string, Origin>(
   Object.entries(curated as Record<string, Origin>).map(([id, o]) => [id.toLowerCase(), o]),
 );
