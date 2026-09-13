@@ -115,6 +115,7 @@ describe("Token Transfer", () => {
     t.expect(token.totalSupply).toBe(5n);
     const aBal = await indexer.TokenBalance.getOrThrow(`${TOKEN.toLowerCase()}-${A}`);
     t.expect(aBal.balance).toBe(5n);
+    t.expect(aBal.updatedAt).toBe(transfer(ZERO, A, 5n, 1).block.timestamp); // self-transfer at block 2 touched nothing
   });
 
   it("lets a sender with no recorded history go negative", async (t) => {
@@ -131,14 +132,24 @@ describe("Token Transfer", () => {
     t.expect(aBal.balance).toBe(3n);
   });
 
-  // Ruling 11 (task 9b, optional) was probed here: place a mint Transfer
-  // ahead of its registering PoolManager.Initialize in the same block
-  // (`simulate: [transfer(ZERO, A, 1000n, 0), registerToken(0)]`). The
-  // simulate source rejected it outright — "1 item you passed to simulate
-  // never reached a handler ... chain 4663: 0" — the same address gate as
-  // ruling 6 applies strictly by position, not by block, so an
-  // out-of-registration-order same-block Transfer cannot be expressed here.
-  // Per ruling 11 this is skipped; see task-9b-report.md.
+  // Ruling 11 (task 9b review, round 1): the registration gate (ruling 6) is
+  // block-aware, not positional — a same-block Transfer ahead of its
+  // registering Initialize is delivered fine at a non-zero block; the
+  // original probe's rejection was specific to block 0.
+  it("keeps a same-block mint that precedes the registering Initialize", async (t) => {
+    const indexer = createTestIndexer();
+    await indexer.process({ chains: { 4663: { simulate: [
+      transfer(ZERO, A, 1000n, 10),
+      registerToken(10),
+    ] } } });
+    const token = await indexer.Token.getOrThrow(TOKEN.toLowerCase());
+    t.expect(token.totalSupply).toBe(1000n);
+    t.expect(token.poolCount).toBe(1);
+    t.expect(token.holdersCount).toBe(1);
+    const aBal = await indexer.TokenBalance.getOrThrow(`${TOKEN.toLowerCase()}-${A}`);
+    t.expect(aBal.balance).toBe(1000n);
+    t.expect(token.createdAt).toBe(transfer(ZERO, A, 1000n, 10).block.timestamp);
+  });
 
   // Ruling 9 (task 9b): written to fail against the pre-refactor handler
   // (it writes a zero-balance row for D instead of skipping entirely), then
@@ -155,5 +166,6 @@ describe("Token Transfer", () => {
     t.expect(await indexer.TokenBalance.get(`${TOKEN.toLowerCase()}-${D}`)).toBeUndefined();
     const aBal = await indexer.TokenBalance.getOrThrow(`${TOKEN.toLowerCase()}-${A}`);
     t.expect(aBal.balance).toBe(5n);
+    t.expect(aBal.updatedAt).toBe(transfer(ZERO, A, 5n, 1).block.timestamp); // zero-value transfer at block 2 touched nothing
   });
 });

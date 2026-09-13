@@ -35,30 +35,48 @@ function transfer(from: Address, to: Address, value: bigint, block: number) {
   };
 }
 
-const historyPage = {
-  data: [{
-    blocks: [{ number: 27_823_666, timestamp: 1_756_990_000 }, { number: 27_823_700, timestamp: 1_756_990_100 }],
-    logs: [
-      { block_number: 27_823_666, log_index: 0, topic1: pad(ZERO), topic2: pad(A), data: hex(1_000n) },
-      { block_number: 27_823_700, log_index: 2, topic1: pad(A), topic2: pad(B), data: hex(400n) },
-    ],
-  }],
-  next_block: INIT_BLOCK,
-  archive_height: 99_999_999,
-};
+type LogFixture = { block_number: number; log_index: number; topic1: string; topic2: string; data: string };
+type BlockFixture = { number: number; timestamp: number };
+
+// The full pre-registration history used by most tests below: the mint,
+// then an A->B transfer, both well before INIT_BLOCK.
+const ALL_LOGS: LogFixture[] = [
+  { block_number: 27_823_666, log_index: 0, topic1: pad(ZERO), topic2: pad(A), data: hex(1_000n) },
+  { block_number: 27_823_700, log_index: 2, topic1: pad(A), topic2: pad(B), data: hex(400n) },
+];
+const ALL_BLOCKS: BlockFixture[] = [
+  { number: 27_823_666, timestamp: 1_756_990_000 },
+  { number: 27_823_700, timestamp: 1_756_990_100 },
+];
+
+// Review finding B: the mock must honour the request's from_block/to_block —
+// return only logs/blocks in that range, with next_block pinned to the
+// request's own to_block — so it always finishes in one page and never
+// returns a stale/duplicate one regardless of which toBlock a caller asks for.
+function stubHyperSync(bodies: string[], logs: LogFixture[], blocks: BlockFixture[]) {
+  vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+    const bodyStr = String(init?.body);
+    bodies.push(bodyStr);
+    const req = JSON.parse(bodyStr) as { from_block: number; to_block: number };
+    const pageLogs = logs.filter((l) => l.block_number >= req.from_block && l.block_number < req.to_block);
+    const pageBlocks = blocks.filter((b) => b.number >= req.from_block && b.number < req.to_block);
+    return new Response(JSON.stringify({
+      data: [{ logs: pageLogs, blocks: pageBlocks }],
+      next_block: req.to_block,
+      archive_height: 99_999_999,
+    }), { status: 200 });
+  }));
+}
 
 describe("pre-registration transfer history", () => {
   const bodies: string[] = [];
   beforeEach(() => {
-    process.env.ENVIO_API_TOKEN = "test-token";
-    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
-      bodies.push(String(init?.body));
-      return new Response(JSON.stringify(historyPage), { status: 200 });
-    }));
+    vi.stubEnv("ENVIO_API_TOKEN", "test-token");
+    stubHyperSync(bodies, ALL_LOGS, ALL_BLOCKS);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete process.env.ENVIO_API_TOKEN;
+    vi.unstubAllEnvs();
     bodies.length = 0;
   });
 
@@ -90,21 +108,45 @@ describe("pre-registration transfer history", () => {
     // EventProcessing.res `preloadBatchOrThrow`, which runs every handler in
     // the batch concurrently, isPreload: true, before the sequential commit
     // pass applies any writes) sees historyLoaded: false for both and
-    // speculatively calls the effect for each event's own toBlock. The
-    // committed run still only applies the replay once — proven by
-    // totalSupply staying 1_000n above instead of doubling to 2_000n — so
-    // bodies is not evidence of a double-apply, only of preload's extra
-    // (harmless) network calls; it can be more than 1, never 0.
-    t.expect(bodies.length).toBeGreaterThanOrEqual(1);
+    // speculatively calls the effect for each event's own toBlock — so it can
+    // issue one extra HyperSync request for the second Initialize's key. What
+    // must hold, and is asserted directly here, is that exactly one request
+    // carries the toBlock that actually got applied, and supply shows no
+    // double count (checked above: 1_000n, not 2_000n).
+    const toBlocks = bodies.map((b) => (JSON.parse(b) as { to_block: number }).to_block);
+    t.expect(toBlocks.filter((tb) => tb === INIT_BLOCK)).toHaveLength(1);
   });
 
   it("skips the replay without an API token", async (t) => {
-    delete process.env.ENVIO_API_TOKEN;
+    vi.unstubAllEnvs(); // undo this describe's beforeEach stub: no token for this one test
     const indexer = createTestIndexer();
     await indexer.process({ chains: { 4663: { simulate: [init()] } } });
     const token = await indexer.Token.getOrThrow(TOKEN);
     t.expect(token.historyLoaded).toBe(true);
     t.expect(token.totalSupply).toBe(0n);
     t.expect(bodies).toHaveLength(0);
+  });
+
+  // Ruling 11 fix (task 9b review, round 1): token.test.ts confirmed the
+  // registration gate is block-aware, so a live Transfer positioned ahead of
+  // its registering Initialize in the same block is delivered. The replay
+  // itself always runs from inside the Initialize handler — strictly after
+  // any such live same-block transfer — so a balance can legitimately go
+  // negative before the historical mint arrives to bring it positive again.
+  it("replays after a live same-block transfer that preceded the registering Initialize", async (t) => {
+    // History holds only the mint here; the A->B 400 below is live (in the
+    // simulate array), not part of the pre-registration history.
+    stubHyperSync(bodies, [ALL_LOGS[0]!], [ALL_BLOCKS[0]!]);
+    const indexer = createTestIndexer();
+    await indexer.process({ chains: { 4663: { simulate: [
+      transfer(A, B, 400n, INIT_BLOCK), // live, same block as Initialize, positioned first
+      init(),
+    ] } } });
+    const token = await indexer.Token.getOrThrow(TOKEN);
+    t.expect(token.totalSupply).toBe(1_000n);
+    t.expect(token.holdersCount).toBe(2);
+    // A: 0 -(live -400)-> -400 -(replayed mint +1000)-> 600
+    t.expect((await indexer.TokenBalance.getOrThrow(`${TOKEN}-${A}`)).balance).toBe(600n);
+    t.expect((await indexer.TokenBalance.getOrThrow(`${TOKEN}-${B}`)).balance).toBe(400n);
   });
 });
