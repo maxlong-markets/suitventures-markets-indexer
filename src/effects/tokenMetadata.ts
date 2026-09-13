@@ -61,12 +61,34 @@ function clean(s: string): string {
 // halt the indexer. Iterating via Array.from (like `for...of`) walks whole
 // code points, so a multi-unit character is always kept or dropped whole.
 function capCodePoints(s: string, max: number): string {
-  return Array.from(s).slice(0, max).join("");
+  // The first `max` code points always fit within `max * 2` UTF-16 units
+  // (each code point is 1 or 2 units), so pre-slicing to that many units
+  // before splitting into code points is safe: it can only ever land a cut
+  // at or after the `max`-th code point, never inside one of the code
+  // points we're keeping, and the `.slice(0, max)` below drops whatever
+  // that cut leaves dangling. This keeps capping a long string O(max)
+  // instead of O(s.length) — Array.from over the whole string cost ~38 MB
+  // and ~32 ms on a 5M-character name.
+  return Array.from(s.slice(0, max * 2)).slice(0, max).join("");
 }
 
-// True when `err` — or something in its viem `cause` chain — signals that
-// symbol()/name() returned data the `string` ABI can't decode, i.e. the
-// contract used a bytes32 return instead: worth a bytes32 retry.
+// True when one of the three concurrent string-ABI calls (symbol, name,
+// decimals) threw AbiDecodingDataSizeTooSmallError, IntegerOutOfRangeError,
+// or SizeExceedsPaddingSizeError — found anywhere in that error's viem
+// `cause` chain — and none of the refusal classes below is also in the
+// chain.
+//
+// A bytes32 symbol() or name() is the common cause: the string ABI misreads
+// the fixed 32-byte word as an offset into dynamic data, and that overflow
+// or size mismatch throws one of the three classes above (confirmed
+// offline below). But it is only one cause, not the definition — a
+// malformed decimals() return matches the same classes just as well (e.g.
+// a value large enough to overflow the safe-integer check, or fewer than
+// 32 bytes of data), even though symbol()/name() decoded fine. That case
+// still triggers a bytes32 retry; decimals() is equally malformed under
+// the bytes32 ABI, so that retry fails too, and the read ends in the
+// uncached fallback via the second catch below — one wasted read round,
+// not a correctness problem.
 //
 // False whenever the chain instead holds a zero-data error
 // (AbiDecodingZeroDataError or ContractFunctionZeroDataError — no code at
