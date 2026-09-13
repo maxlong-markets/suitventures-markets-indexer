@@ -24,7 +24,10 @@ const transferSchema = S.schema({
  * warning, since the output schema only carries the transfers themselves.
  * Rate-limited (not the HyperSync HTTP retry/backoff, which lives in
  * `fetchTransferHistory` itself) because preload can call this once per new
- * token discovered in a batch, all at once.
+ * token discovered in a batch, all at once — and kept low because these
+ * queries share the API token's HyperSync quota with envio's own event
+ * stream, so a fast burst here starves the indexer's main event stream of
+ * that same quota.
  */
 export const getTransferHistory = createEffect(
   {
@@ -32,7 +35,7 @@ export const getTransferHistory = createEffect(
     input: { token: S.string, toBlock: S.number },
     output: S.array(transferSchema),
     cache: true,
-    rateLimit: { calls: 5, per: "second" },
+    rateLimit: { calls: 2, per: "second" },
   },
   async ({ input, context }): Promise<HistoricalTransfer[]> => {
     const apiToken = process.env.ENVIO_API_TOKEN;
@@ -41,7 +44,25 @@ export const getTransferHistory = createEffect(
       return [];
     }
     try {
-      const { transfers, skipped } = await fetchTransferHistory({ token: input.token, toBlock: input.toBlock, apiToken });
+      const { transfers, skipped } = await fetchTransferHistory({
+        token: input.token,
+        toBlock: input.toBlock,
+        apiToken,
+        onRetry: (info) => {
+          // A HyperSync rate limit has no attempt cap, so a busy sync can
+          // retry for a long time; log occasionally rather than on every
+          // attempt so a stuck replay is still visible without flooding the
+          // log. Never logs the URL or the API token, only the ERC-20 token,
+          // the target block, the failure and the wait.
+          const shouldLog = info.attempt === 1 || info.attempt === 5 || info.attempt === 10 || (info.attempt > 10 && info.attempt % 10 === 0);
+          if (shouldLog) {
+            context.log.warn(
+              `transfer history for ${input.token} up to ${input.toBlock}: retry ${info.attempt} ` +
+                `(${info.status ?? info.reason}), waiting ${info.waitMs}ms`,
+            );
+          }
+        },
+      });
       if (skipped > 0) {
         context.log.warn(`transfer history for ${input.token} up to ${input.toBlock}: skipped ${skipped} non-ERC-20 Transfer log(s)`);
       }

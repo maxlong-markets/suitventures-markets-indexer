@@ -68,6 +68,88 @@ describe("fetchTransferHistory", () => {
     expect(result.transfers).toEqual([]);
   });
 
+  // FW1 (Critical C1): a HyperSync rate limit must slow the indexer, never stop
+  // it. The old 6-attempt cap died mid-sync on a real run (block 1,289,864);
+  // 429s now retry without any attempt cap.
+  it("retries a 429 eight times (well past the old 6-attempt cap), then succeeds", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n <= 8) return new Response("slow down", { status: 429 });
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    expect(n).toBe(9);
+    expect(result.transfers).toEqual([]);
+  });
+
+  it("retries a 429 whose body read throws, instead of letting the read failure escape", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) {
+        const res = new Response("slow down", { status: 429 });
+        vi.spyOn(res, "text").mockRejectedValueOnce(new Error("stream closed"));
+        return res;
+      }
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    expect(n).toBe(2);
+    expect(result.transfers).toEqual([]);
+  });
+
+  it("throws after 10 attempts on a persistent 5xx, with no sleep after the last one", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      return new Response("boom", { status: 503 });
+    });
+    await expect(
+      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/503/);
+    expect(n).toBe(10);
+  });
+
+  it("retries a page that does not advance, then succeeds", async () => {
+    let n = 0;
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      n += 1;
+      const req = JSON.parse(String(init?.body)) as { from_block: number };
+      if (n <= 3) return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // lagging node: no progress
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    expect(n).toBe(4);
+    expect(result.transfers).toEqual([]);
+  });
+
+  it("throws when a page never advances after 10 attempts", async () => {
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const req = JSON.parse(String(init?.body)) as { from_block: number };
+      return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 });
+    });
+    await expect(
+      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+  });
+
+  it("reports increasing attempt numbers to onRetry", async () => {
+    let n = 0;
+    const attempts: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n <= 3) return new Response("slow down", { status: 429 });
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, onRetry: (info) => attempts.push(info.attempt) },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(attempts).toEqual([1, 2, 3]);
+  });
+
   // Review finding A: HyperSync's log filter matches on address + topic0 only,
   // so a non-ERC-20 event that reuses the Transfer topic0 (ERC-721's
   // `Transfer(address,address,uint256 indexed)`, id-indexed, empty data) or a
@@ -98,8 +180,10 @@ describe("fetchTransferHistory", () => {
       const req = JSON.parse(String(init?.body)) as { from_block: number };
       return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // next_block === from_block: no progress
     });
+    // A stalled page is now retried (capped at 10 attempts, see FW1) rather than
+    // thrown immediately, so this needs a tiny retryDelayMs to stay fast.
     await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok" }, fetchImpl as unknown as typeof fetch),
+      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow();
   });
   it("throws when next_block is missing", async () => {
