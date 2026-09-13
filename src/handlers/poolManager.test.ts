@@ -4,8 +4,8 @@ import { amountsForLiquidityDelta } from "../lib/liquidity";
 
 // Simulate items type their address-shaped fields (srcAddress, currency0/1, hooks,
 // sender, from) as the generated `Address` (`0x${string}`) rather than plain
-// `string`. Annotating these constants keeps every value byte-for-byte identical
-// while satisfying that at the type level.
+// `string`. These constants are typed `Address` so their values satisfy that
+// requirement without changing any value.
 const POOL_MANAGER: Address = "0x8366a39CC670B4001A1121B8F6A443A643e40951";
 const AI: Address = "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18";
 const NVDA: Address = "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC";
@@ -200,6 +200,25 @@ describe("Swap", () => {
     // Paid side nets out the 1% fee: 10n**18n * (1_000_000n - 10_000n) / 1_000_000n.
     t.expect(pool.tvlToken).toBe((10n ** 18n * 990_000n) / 1_000_000n);
   });
+  it("rounds a non-divisible fee toward zero, in the pool's favor", async (t) => {
+    const indexer = createTestIndexer();
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({}, 100),
+      {
+        contract: "PoolManager" as const, event: "Swap" as const, srcAddress: POOL_MANAGER,
+        block: { number: 101, timestamp: 1_700_000_101 },
+        transaction: { hash: TX, from: WALLET },
+        // Swapper pays 1001 wei of NVDA (quote) and receives 1 wei of AI (token), fee 0.3%.
+        params: { id: POOL, sender: WALLET, amount0: 1n, amount1: -1001n, sqrtPriceX96: Q96, liquidity: 10n ** 18n, tick: 0n, fee: 3000n },
+      },
+    ] } } });
+    const pool = await indexer.Pool.getOrThrow(POOL);
+    // 1001n * (1_000_000n - 3000n) = 997_997_000n; BigInt division truncates toward zero, so
+    // -997_997_000n / 1_000_000n = -997n (not -998n, which floor-toward-negative-infinity
+    // division would give). tvlQuote = 0n - (-997n) = 997n exactly.
+    t.expect(pool.tvlQuote).toBe(997n);
+    t.expect(pool.tvlToken).toBe(-1n); // received side: subtracted in full
+  });
 });
 
 describe("recomputePrimaryPool", () => {
@@ -221,6 +240,14 @@ describe("recomputePrimaryPool", () => {
     // still has none (no Chainlink price for NVDA exists in this test), and it takes over.
     t.expect(token.primaryPool_id).toBe(usdgPoolId);
     t.expect(token.origin).toBe("Uniswap");
+
+    // Exercises the Swap handler's own poolCount > 1 branch: a swap on the now-non-primary
+    // NVDA pool must not disturb the primary pool, since NVDA still has no USD price.
+    await indexer.process({ chains: { 4663: { simulate: [swap(1000n * 10n ** 18n, -(10n ** 18n), 2n * Q96, 103)] } } });
+    const nvdaPool = await indexer.Pool.getOrThrow(POOL);
+    t.expect(nvdaPool.swapCount).toBe(1);
+    token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    t.expect(token.primaryPool_id).toBe(usdgPoolId);
   });
 });
 
@@ -228,21 +255,29 @@ describe("ModifyLiquidity", () => {
   it("orients tvl by currency and leaves exact rounding dust after a full add and remove", async (t) => {
     const indexer = createTestIndexer();
     const id = "0x" + "66".repeat(32);
+    // A price far from 1:1 (unlike the default Q96) makes amount0 and amount1 wildly
+    // different magnitudes, so this test fails if tokenAmt/quoteAmt were ever swapped in
+    // the handler — at Q96 they're both ~1e18 and a swap would go unnoticed.
+    const price = Q96 * 1_000_000n;
     await indexer.process({ chains: { 4663: { simulate: [
-      init({ id, currency0: USDG, currency1: OTHER_TOKEN, hooks: ZERO }, 100),
+      init({ id, currency0: USDG, currency1: OTHER_TOKEN, hooks: ZERO, sqrtPriceX96: price }, 100),
     ] } } });
-    const { amount0: added0, amount1: added1 } = amountsForLiquidityDelta(Q96, -887272, 887272, 10n ** 18n);
+    const { amount0: added0, amount1: added1 } = amountsForLiquidityDelta(price, -887272, 887272, 10n ** 18n);
+    t.expect(added0).toBe(1000000000000n);
+    t.expect(added1).toBe(1000000000000000000000000n);
 
     await indexer.process({ chains: { 4663: { simulate: [modifyLiquidity(id, 10n ** 18n, 101)] } } });
     const afterAdd = await indexer.Pool.getOrThrow(id);
     t.expect(afterAdd.tvlToken).toBe(added1); // token is currency1
     t.expect(afterAdd.tvlQuote).toBe(added0); // quote (USDG) is currency0
 
-    const { amount0: removed0, amount1: removed1 } = amountsForLiquidityDelta(Q96, -887272, 887272, -(10n ** 18n));
+    const { amount0: removed0, amount1: removed1 } = amountsForLiquidityDelta(price, -887272, 887272, -(10n ** 18n));
     await indexer.process({ chains: { 4663: { simulate: [modifyLiquidity(id, -(10n ** 18n), 102)] } } });
     const afterRemove = await indexer.Pool.getOrThrow(id);
     // Adds round up and removes round down, so a few wei of dust remain instead of exactly 0.
     t.expect(afterRemove.tvlToken).toBe(added1 + removed1);
     t.expect(afterRemove.tvlQuote).toBe(added0 + removed0);
+    t.expect(afterRemove.tvlToken).toBe(1n);
+    t.expect(afterRemove.tvlQuote).toBe(1n);
   });
 });

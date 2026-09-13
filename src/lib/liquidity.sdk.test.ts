@@ -21,9 +21,8 @@ import {
 const toBig = (x: JSBI): bigint => BigInt(x.toString());
 const toJSBI = (x: bigint): JSBI => JSBI.BigInt(x.toString());
 
-/** The pre-port implementation (Task 5), kept here only as the reference this
- * file checks the native-bigint port against. Identical to the old
- * src/lib/liquidity.ts body. */
+/** The SDK-based implementation (@uniswap/v3-sdk plus jsbi) that this file checks
+ * the native-bigint port in src/lib/liquidity.ts against. */
 function referenceAmounts(
   sqrtPriceX96: bigint,
   tickLower: number,
@@ -118,7 +117,9 @@ function randomTickPair(rng: () => number, aligned: boolean): [number, number] {
  * extremes (0 and span-1) to exercise the branch boundaries directly. */
 function priceNearTick(rng: () => number, t: number, force?: "zero" | "max"): bigint {
   const lo = toBig(TickMath.getSqrtRatioAtTick(t));
-  if (t >= MAX_TICK) return lo;
+  // amountsForLiquidityDelta's valid range is [MIN_SQRT_RATIO, MAX_SQRT_RATIO): at t = MAX_TICK,
+  // lo is exactly MAX_SQRT_RATIO, which that range check would reject, so step one wei inside it.
+  if (t >= MAX_TICK) return lo - 1n;
   const hi = toBig(TickMath.getSqrtRatioAtTick(t + 1));
   const span = hi - lo;
   if (span <= 0n) return lo;
