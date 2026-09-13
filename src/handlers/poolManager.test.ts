@@ -221,6 +221,60 @@ describe("Swap", () => {
   });
 });
 
+// FW3: a token whose metadata read failed at Initialize used to retry only on
+// a second Initialize for the same token, and most tokens never get a second
+// pool. Every metadata read fails offline (ENVIO_RPC_URL is blanked, see
+// vitest.config.ts), so these exercise the throttled Swap-handler retry path
+// directly: metadataRetryAt tracks when the next retry is due, and a swap
+// before that time must leave it untouched.
+describe("metadata retry throttling", () => {
+  function swapAt(timestamp: number, block: number, amount0: bigint, amount1: bigint, sqrtPriceX96: bigint) {
+    return {
+      contract: "PoolManager" as const, event: "Swap" as const, srcAddress: POOL_MANAGER,
+      block: { number: block, timestamp },
+      transaction: { hash: TX, from: WALLET },
+      params: { id: POOL, sender: WALLET, amount0, amount1, sqrtPriceX96, liquidity: 10n ** 18n, tick: 0n, fee: 3000n },
+    };
+  }
+
+  it("sets metadataRetryAt to ts + 3600 when Initialize's metadata read fails", async (t) => {
+    const indexer = createTestIndexer();
+    const initTs = 1_700_000_100; // init({}, 100)'s timestamp: 1_700_000_000 + 100
+    await indexer.process({ chains: { 4663: { simulate: [init({}, 100)] } } });
+    const token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    t.expect(token.metadataLoaded).toBe(false);
+    t.expect(token.metadataRetryAt).toBe(initTs + 3600);
+  });
+
+  it("leaves metadataRetryAt unchanged for a swap before the retry time", async (t) => {
+    const indexer = createTestIndexer();
+    const initTs = 1_700_000_100;
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({}, 100),
+      swapAt(initTs + 100, 101, 1000n * 10n ** 18n, -(10n ** 18n), 2n * Q96),
+    ] } } });
+    const token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    t.expect(token.metadataLoaded).toBe(false);
+    t.expect(token.metadataRetryAt).toBe(initTs + 3600);
+  });
+
+  it("retries and reschedules metadataRetryAt for a swap at or after the retry time", async (t) => {
+    const indexer = createTestIndexer();
+    const initTs = 1_700_000_100;
+    const swapTs = initTs + 3700;
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({}, 100),
+      swapAt(swapTs, 102, 1000n * 10n ** 18n, -(10n ** 18n), 2n * Q96),
+    ] } } });
+    const token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    t.expect(token.metadataLoaded).toBe(false); // still fails offline
+    t.expect(token.metadataRetryAt).toBe(swapTs + 3600);
+    // The swap itself is still recorded, priced with the fallback decimals.
+    const swaps = await indexer.Swap.getAll();
+    t.expect(swaps).toHaveLength(1);
+  });
+});
+
 describe("recomputePrimaryPool", () => {
   it("switches the primary pool to the one with higher USD tvl", async (t) => {
     const indexer = createTestIndexer();

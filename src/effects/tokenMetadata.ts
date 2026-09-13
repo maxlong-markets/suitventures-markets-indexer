@@ -253,7 +253,11 @@ export const getTokenMetadata = createEffect(
     input: S.string,
     output: { symbol: S.string, name: S.string, decimals: S.number, ok: S.boolean },
     cache: true,
-    rateLimit: false,
+    // Now also called from the Swap handler's throttled metadata retry (see
+    // poolManager.ts), not just once per token at Initialize, so a burst of
+    // swaps across many still-failing tokens is bounded rather than
+    // unlimited.
+    rateLimit: { calls: 10, per: "second" },
   },
   async ({ input: address, context }) => {
     const { metadata, error } = await readTokenMetadata(client, address);

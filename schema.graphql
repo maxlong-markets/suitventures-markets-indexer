@@ -55,6 +55,7 @@ type Token {
   name: String!
   decimals: Int!
   metadataLoaded: Boolean!
+  metadataRetryAt: Int!     # block time after which a failed metadata read is retried; 0 once loaded
   historyLoaded: Boolean!   # pre-registration transfers replayed (see src/effects/transferHistory.ts)
   totalSupply: BigInt!  # running sum of mints minus burns
   holdersCount: Int!

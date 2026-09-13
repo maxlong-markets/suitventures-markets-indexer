@@ -50,7 +50,13 @@ indexer.onEvent({ ...INITIALIZE, fields: { block: ["timestamp"] } }, async ({ ev
   let token = await ensureToken(context, c.token, ts);
   if (!token.metadataLoaded) {
     const meta = await context.effect(getTokenMetadata, c.token);
-    token = { ...token, symbol: meta.symbol, name: meta.name, decimals: meta.decimals, metadataLoaded: meta.ok };
+    // A failed read is retried later, throttled from the Swap handler once an
+    // hour of block time has passed (see metadataRetryAt below and there).
+    token = {
+      ...token,
+      symbol: meta.symbol, name: meta.name, decimals: meta.decimals,
+      metadataLoaded: meta.ok, metadataRetryAt: meta.ok ? 0 : ts + 3600,
+    };
   }
   if (!token.historyLoaded) {
     // Envio delivers this token's Transfer logs only from this block on (registration block,
@@ -152,17 +158,34 @@ indexer.onEvent(
     const pool = await context.Pool.get(event.params.id.toLowerCase());
     if (!pool) return; // untracked pool
     if (event.params.amount0 === 0n && event.params.amount1 === 0n) return; // no-op swap
-    const token = await context.Token.getOrThrow(pool.token_id);
+    let token = await context.Token.getOrThrow(pool.token_id);
     const quote = await context.Quote.getOrThrow(pool.quote_id);
+    const ts = event.block.timestamp;
+
+    // Most tokens never get a second pool, so a failed Initialize metadata
+    // read used to never retry at all. Retry here instead, throttled to once
+    // per hour of block time so a token stuck failing doesn't cost a read on
+    // every swap.
+    let tokenChanged = false;
+    if (!token.metadataLoaded && ts >= token.metadataRetryAt) {
+      const meta = await context.effect(getTokenMetadata, token.address);
+      token = meta.ok
+        ? { ...token, symbol: meta.symbol, name: meta.name, decimals: meta.decimals, metadataLoaded: true, metadataRetryAt: 0 }
+        : { ...token, metadataRetryAt: ts + 3600 };
+      tokenChanged = true;
+    }
+
     // Swap amounts are the swapper's deltas, emitted before afterSwap: they are pre-hook-fee.
     const tokenDelta = pool.tokenIsCurrency0 ? event.params.amount0 : event.params.amount1;
     const quoteDelta = pool.tokenIsCurrency0 ? event.params.amount1 : event.params.amount0;
+    // A retry above already lands in `token.decimals` before this read, so a swap that
+    // triggers a successful retry is priced with the real decimals immediately. Any
+    // swap recorded before that point used the fallback decimals (18).
     const amountToken = toUnits(absBig(tokenDelta), token.decimals);
     const amountQuote = toUnits(absBig(quoteDelta), quote.decimals);
     const dec0 = pool.tokenIsCurrency0 ? token.decimals : quote.decimals;
     const dec1 = pool.tokenIsCurrency0 ? quote.decimals : token.decimals;
     const price = priceFromSqrtPriceX96(event.params.sqrtPriceX96, dec0, dec1, pool.tokenIsCurrency0);
-    const ts = event.block.timestamp;
 
     const swap: Swap = {
       id: `${event.transaction.hash}-${event.logIndex}`,
@@ -193,6 +216,9 @@ indexer.onEvent(
       lastSwapAt: ts,
       volumeQuoteAllTime: pool.volumeQuoteAllTime + amountQuote,
     });
+    // Persisted alongside the swap's other writes, so a retry here is never lost even
+    // though this handler only reaches recomputePrimaryPool below conditionally.
+    if (tokenChanged) context.Token.set(token);
     if (token.poolCount > 1) await recomputePrimaryPool(context, token.id);
   },
 );
