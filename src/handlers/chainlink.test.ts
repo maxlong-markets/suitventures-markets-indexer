@@ -94,6 +94,11 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
       chains: {
         4663: {
           simulate: [
+            // Established before the rotation, so AGGREGATOR's QuoteFeed row already
+            // exists (active) when AggregatorConfirmed deactivates it below — this
+            // exercises the "flip an existing row" branch, not just "create one
+            // inactive from scratch" (FW5).
+            answerUpdated(AGGREGATOR!, BigInt(Math.round(224 * 10 ** dec)), 1n, 1_700_000_019n, BASE_BLOCK + 19),
             aggregatorConfirmed(PROXY!, AGGREGATOR!, NEW_AGG, BASE_BLOCK + 20),
             answerUpdated(NEW_AGG, BigInt(Math.round(230 * 10 ** dec)), 2n, 1_700_000_021n, BASE_BLOCK + 21),
             // The old aggregator is still statically registered and can still emit; its feed
@@ -110,6 +115,31 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
     t.expect(oldFeed.active).toBe(false);
     const newFeed = await indexer.QuoteFeed.getOrThrow(NEW_AGG.toLowerCase());
     t.expect(newFeed.active).toBe(true);
+  });
+
+  // FW5 (Minor 1): re-confirming the current aggregator (previous === latest)
+  // must never deactivate it — previously this always ran the deactivation
+  // branch whenever `previous` wasn't the zero address, even when it was the
+  // very aggregator just (re)confirmed as latest, immediately overwriting the
+  // active row it had just written with an inactive one sharing the same id.
+  it("does not deactivate an aggregator that re-confirms itself", async (t) => {
+    const indexer = createTestIndexer();
+    const dec = feedQuote!.chainlinkDecimals!;
+    await indexer.process({
+      chains: {
+        4663: {
+          simulate: [
+            aggregatorConfirmed(PROXY!, AGGREGATOR!, AGGREGATOR!, BASE_BLOCK + 40),
+            answerUpdated(AGGREGATOR!, BigInt(Math.round(226 * 10 ** dec)), 5n, 1_700_000_041n, BASE_BLOCK + 41),
+          ],
+        },
+      },
+    });
+    const feed = await indexer.QuoteFeed.getOrThrow(AGGREGATOR!.toLowerCase());
+    t.expect(feed.active).toBe(true);
+    const price = await indexer.QuotePrice.getOrThrow(feedQuote!.address);
+    t.expect(price.usdPrice).toBeCloseTo(226, 6);
+    t.expect(price.aggregator).toBe(AGGREGATOR!.toLowerCase());
   });
 
   it("maps a second, distinct aggregator to its own quote rather than the first", async (t) => {

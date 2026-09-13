@@ -21,7 +21,10 @@ indexer.onEvent(
     const latestFeed: QuoteFeed = { id: latest, quote_id: quote.id, decimals: row.chainlinkDecimals, proxy, active: true };
     context.QuoteFeed.set(latestFeed);
     const previous = event.params.previous.toLowerCase();
-    if (previous !== ZERO_ADDRESS) {
+    // A re-confirmation of the current aggregator (previous === latest) must never
+    // deactivate it: without this guard, the row just written active above (same id)
+    // would be immediately overwritten inactive by the block below.
+    if (previous !== ZERO_ADDRESS && previous !== latest) {
       // Deactivate the outgoing aggregator so a later AnswerUpdated from it (it stays
       // statically registered and can keep emitting) can't overwrite the new aggregator's
       // price. Create its row if AnswerUpdated never lazily created one below, so that lazy
