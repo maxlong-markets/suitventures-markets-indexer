@@ -3,12 +3,15 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -16,6 +19,3 @@ jobs:
       - run: npm run codegen
       - run: npx tsc --noEmit
       - run: npm test
-        env:
-          ENVIO_CANDLES_1M_START_BLOCK: "0"
-          ENVIO_CANDLES_5M_START_BLOCK: "0"
