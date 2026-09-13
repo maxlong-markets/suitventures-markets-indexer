@@ -112,7 +112,7 @@ function capCodePoints(s: string, max: number): string {
 // Transport/RPC errors (timeouts, 429s, etc.) match neither set, so a
 // transient failure can't be silently misread as "must be a bytes32 token".
 //
-// Confirmed offline (viem@2.56.3, see task-7-report.md "Fix round 1"):
+// Confirmed offline against viem@2.56.3:
 // decodeFunctionResult on a real bytes32 payload read with the `string` ABI
 // throws IntegerOutOfRangeError (the mis-parsed offset word overflows the
 // safe-integer check), not one of the AbiDecoding*Error classes. All

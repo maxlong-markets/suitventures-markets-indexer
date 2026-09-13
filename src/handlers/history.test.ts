@@ -3,7 +3,8 @@ import { createTestIndexer, type Address } from "envio";
 
 // Simulate items type their address-shaped fields (srcAddress, params.from/to/
 // currency0/currency1/hooks) as the generated `Address` (`0x${string}`) rather
-// than plain `string`, the same as Task 8/9's handler tests. These constants
+// than plain `string`, the same convention used by the other handler test
+// files. These constants
 // are typed `Address` so their values satisfy that requirement without
 // changing any value; POOL (a bytes32 pool id, not an address) stays a plain
 // string, matching the existing poolManager.test.ts convention.
@@ -127,12 +128,12 @@ describe("pre-registration transfer history", () => {
     t.expect(bodies).toHaveLength(0);
   });
 
-  // Ruling 11 fix (task 9b review, round 1): token.test.ts confirmed the
-  // registration gate is block-aware, so a live Transfer positioned ahead of
-  // its registering Initialize in the same block is delivered. The replay
-  // itself always runs from inside the Initialize handler — strictly after
-  // any such live same-block transfer — so a balance can legitimately go
-  // negative before the historical mint arrives to bring it positive again.
+  // token.test.ts confirms the registration gate is block-aware, so a live
+  // Transfer positioned ahead of its registering Initialize in the same
+  // block is delivered. The replay itself always runs from inside the
+  // Initialize handler — strictly after any such live same-block transfer —
+  // so a balance can legitimately go negative before the historical mint
+  // arrives to bring it positive again.
   it("replays after a live same-block transfer that preceded the registering Initialize", async (t) => {
     // History holds only the mint here; the A->B 400 below is live (in the
     // simulate array), not part of the pre-registration history.

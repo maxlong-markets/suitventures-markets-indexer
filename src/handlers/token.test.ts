@@ -3,7 +3,7 @@ import { createTestIndexer, type Address } from "envio";
 
 // Simulate items type their address-shaped fields (srcAddress, params.from/to)
 // as the generated `Address` (`0x${string}`) rather than plain `string`, the
-// same as Task 8's poolManager.test.ts helpers. These constants and the
+// same convention as poolManager.test.ts's helpers. These constants and the
 // `transfer` helper below are typed `Address` so their values satisfy that
 // requirement without changing any value.
 const TOKEN: Address = "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18";
@@ -13,17 +13,17 @@ const B: Address = "0x2222222222222222222222222222222222222222";
 const C: Address = "0x3333333333333333333333333333333333333333";
 const D: Address = "0x4444444444444444444444444444444444444444";
 // Mixed-case, 40 hex chars: exercises the `.toLowerCase()` on TokenBalance ids
-// (ruling 8) without being confused for one of the all-lowercase constants above.
+// without being confused for one of the all-lowercase constants above.
 const MIXED = ("0xAbCd" + "0".repeat(35) + "1") as Address;
 
-// Ruling 6: the test indexer's simulate source applies the same address gate a
-// real source would — it only delivers a non-wildcard Token.Transfer for an
+// The test indexer's simulate source applies the same address gate a real
+// source would — it only delivers a non-wildcard Token.Transfer for an
 // address that a `contractRegister` has actually registered (confirmed: without
 // this, every Transfer below comes back "never reached a handler"). Pair TOKEN
 // with NVDA through a hookless PoolManager.Initialize at an earlier block so
-// Task 8's `contractRegister` on PoolManager.Initialize (poolManager.ts) calls
+// poolManager.ts's `contractRegister` on PoolManager.Initialize calls
 // `context.chain.Token.add` before any Transfer for TOKEN is simulated. NVDA and
-// the PoolManager address are Task 8's poolManager.test.ts constants. Initialize
+// the PoolManager address are poolManager.test.ts's own constants. Initialize
 // itself creates the Token row (via `ensureToken`) that the Transfer handler
 // below then updates; it creates no balances, so it leaves every balance
 // assertion below unchanged.
@@ -84,8 +84,8 @@ describe("Token Transfer", () => {
     t.expect(await indexer.TokenBalance.get(`${TOKEN.toLowerCase()}-${ZERO}`)).toBeUndefined();
   });
 
-  // Ruling 8 (task 9b): guard tests written against the pre-refactor handler,
-  // kept passing across the `applyTransfer` extraction.
+  // Guard tests written against the pre-refactor handler, kept passing
+  // across the `applyTransfer` extraction.
   it("lowercases a mixed-case holder's balance id", async (t) => {
     const indexer = createTestIndexer();
     await indexer.process({ chains: { 4663: { simulate: [
@@ -132,10 +132,10 @@ describe("Token Transfer", () => {
     t.expect(aBal.balance).toBe(3n);
   });
 
-  // Ruling 11 (task 9b review, round 1): the registration gate (ruling 6) is
-  // block-aware, not positional — a same-block Transfer ahead of its
-  // registering Initialize is delivered fine at a non-zero block; the
-  // original probe's rejection was specific to block 0.
+  // The registration gate above is block-aware, not positional — a
+  // same-block Transfer ahead of its registering Initialize is delivered
+  // fine at a non-zero block; an earlier version of this test rejected it
+  // only because that probe was specific to block 0.
   it("keeps a same-block mint that precedes the registering Initialize", async (t) => {
     const indexer = createTestIndexer();
     await indexer.process({ chains: { 4663: { simulate: [
@@ -151,9 +151,9 @@ describe("Token Transfer", () => {
     t.expect(token.createdAt).toBe(transfer(ZERO, A, 1000n, 10).block.timestamp);
   });
 
-  // Ruling 9 (task 9b): written to fail against the pre-refactor handler
-  // (it writes a zero-balance row for D instead of skipping entirely), then
-  // made to pass by the zero-value check in `applyTransfer`.
+  // Written to fail against the pre-refactor handler (it wrote a
+  // zero-balance row for D instead of skipping entirely), then made to pass
+  // by the zero-value check in `applyTransfer`.
   it("writes nothing for a zero-value transfer", async (t) => {
     const indexer = createTestIndexer();
     await indexer.process({ chains: { 4663: { simulate: [

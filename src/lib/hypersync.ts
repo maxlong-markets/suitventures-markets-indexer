@@ -223,9 +223,8 @@ async function fetchPage(
     if (!Array.isArray(candidate.data) || !Number.isInteger(candidate.next_block)) {
       // Returned as HTTP 200, this is worse than an error: silently
       // returning what little we have would let the caller cache a
-      // truncated history and mark it loaded forever (task-9b review
-      // finding B). Throw instead, the same as a HyperSync HTTP failure, so
-      // it's never cached.
+      // truncated history and mark it loaded forever. Throw instead, the
+      // same as a HyperSync HTTP failure, so it's never cached.
       throw new Error(`HyperSync response malformed for block ${requestFromBlock}: missing data array or next_block`);
     }
     if (candidate.next_block > requestFromBlock) return candidate;
