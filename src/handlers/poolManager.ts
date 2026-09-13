@@ -5,8 +5,10 @@ import { priceFromSqrtPriceX96, toUnits, absBig } from "../lib/price";
 import { INTERVALS, bucketStart, candleId, candleWindowAllows } from "../lib/candles";
 import { amountsForLiquidityDelta } from "../lib/liquidity";
 import { getTokenMetadata } from "../effects/tokenMetadata";
+import { getTransferHistory } from "../effects/transferHistory";
 import { ZERO_ADDRESS } from "../lib/constants";
 import { ensureQuote, ensureToken, recomputePrimaryPool, type HandlerContext } from "./shared";
+import { applyTransfer } from "./token";
 
 // The generated `where` filter narrows params to `Address` (a `0x${string}` template
 // literal), but `QUOTE_ADDRESSES` is plain `string[]` since it's also compared with
@@ -49,6 +51,15 @@ indexer.onEvent({ ...INITIALIZE, fields: { block: ["timestamp"] } }, async ({ ev
   if (!token.metadataLoaded) {
     const meta = await context.effect(getTokenMetadata, c.token);
     token = { ...token, symbol: meta.symbol, name: meta.name, decimals: meta.decimals, metadataLoaded: meta.ok };
+  }
+  if (!token.historyLoaded) {
+    // Envio delivers this token's Transfer logs only from this block on (registration block,
+    // same-block coverage). Everything earlier — the mint, launchpad-curve trades — is replayed here.
+    const history = await context.effect(getTransferHistory, { token: c.token, toBlock: event.block.number - 1 });
+    for (const h of history) {
+      token = await applyTransfer(context, token, h.from, h.to, BigInt(h.value), h.timestamp || ts);
+    }
+    token = { ...token, historyLoaded: true };
   }
   const dec0 = c.tokenIsCurrency0 ? token.decimals : quote.decimals;
   const dec1 = c.tokenIsCurrency0 ? quote.decimals : token.decimals;

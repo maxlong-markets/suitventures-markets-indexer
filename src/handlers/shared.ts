@@ -32,6 +32,7 @@ export async function ensureToken(context: HandlerContext, address: string, time
   if (existing) return existing;
   const token: Token = {
     id, address, symbol: address.slice(0, 6), name: address, decimals: 18, metadataLoaded: false,
+    historyLoaded: false,
     totalSupply: 0n, holdersCount: 0, poolCount: 0, origin: "Other", primaryPool_id: undefined, createdAt: timestamp,
   };
   context.Token.set(token);

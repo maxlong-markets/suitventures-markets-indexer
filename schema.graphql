@@ -54,6 +54,7 @@ type Token {
   name: String!
   decimals: Int!
   metadataLoaded: Boolean!
+  historyLoaded: Boolean!   # pre-registration transfers replayed (see src/effects/transferHistory.ts)
   totalSupply: BigInt!  # running sum of mints minus burns
   holdersCount: Int!
   poolCount: Int!
