@@ -68,7 +68,7 @@ type Token {
 
 type Pool @index(fields: ["token", ["lastSwapAt", "DESC"]]) {
   id: ID!               # poolId (bytes32, lowercase)
-  token: Token! @index
+  token: Token!          # composite index above already leads with token; no single-field index needed
   quote: Quote! @index
   tokenIsCurrency0: Boolean!
   hooks: String!
@@ -98,7 +98,7 @@ type Swap @index(fields: ["pool", ["timestamp", "DESC"]]) {
   txHash: String!
 }
 
-type Candle @index(fields: ["pool", "interval", ["t", "DESC"]]) @index(fields: ["interval", "t"]) {
+type Candle @index(fields: ["pool", "interval", ["t", "DESC"]]) @index(fields: ["interval", "pool", ["t", "DESC"]]) {
   id: ID!               # poolId-interval-bucket
   pool: Pool!
   interval: Interval!
