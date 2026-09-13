@@ -3,15 +3,11 @@ import { quoteRow } from "../lib/quotes";
 import { choosePrimaryPool } from "../lib/primaryPool";
 import { USDG } from "../lib/constants";
 
-// Step 5 fallback (b), adapted: the brief's `Parameters<typeof indexer.onEvent>[1]`
-// collapses to `never` because `indexer.onEvent` is generic, and even the brief's own
-// explicit-instantiation fallback (`typeof indexer.onEvent<"PoolManager","Swap">`)
-// doesn't type-check here — `indexer.onEvent`'s computed type isn't a plain generic
-// signature TS's instantiation-expression syntax accepts. `EvmOnEventContext` is the
-// named type `indexer.onEvent`'s handler signature is built from (see envio's
-// index.d.ts); it doesn't vary by contract/event, only by the project config, and its
-// default type parameter already resolves to this project's generated config, so it
-// gives the same context type without needing to instantiate `onEvent` at all.
+// envio's generic `indexer.onEvent` signature does not yield a usable context type
+// through TypeScript's `Parameters<>`/instantiation-expression utilities. `EvmOnEventContext`
+// is envio's exported handler context type: it doesn't vary by contract/event, only by
+// the project config, and its default type parameter already resolves to this project's
+// generated config.
 export type HandlerContext = EvmOnEventContext;
 
 /** Seeds the Quote row (and USDG's pinned price) the first time a quote is seen. */

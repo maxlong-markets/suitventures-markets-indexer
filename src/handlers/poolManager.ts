@@ -9,10 +9,10 @@ import { ZERO_ADDRESS } from "../lib/constants";
 import { ensureQuote, ensureToken, recomputePrimaryPool, type HandlerContext } from "./shared";
 
 // The generated `where` filter narrows params to `Address` (a `0x${string}` template
-// literal), but `QUOTE_ADDRESSES` is deliberately typed as plain `string[]` in
-// src/lib/quotes.ts (Task 2, already committed) since it's compared with
-// case-insensitive helpers elsewhere. Every entry is already a lowercase 0x
-// address (config/quotes.json), so this cast only narrows the static type.
+// literal), but `QUOTE_ADDRESSES` is plain `string[]` since it's also compared with
+// case-insensitive helpers elsewhere. Every entry is already a lowercase 0x address
+// (config/quotes.json), so this cast only narrows the static type, without changing
+// any value.
 const QUOTE_ADDRESSES_FILTER = QUOTE_ADDRESSES as Address[];
 
 // HyperSync only sends Initialize logs where one of the indexed sides is a quote.
@@ -118,11 +118,22 @@ function updateCandles(
   });
 }
 
+// v4 swap fees (LP plus protocol fee, `feePips` in pips) never become pool liquidity:
+// they accrue to fee growth, and LPs collect them later through separate modifyLiquidity
+// calls whose events carry no fee amount at all. So the side the swapper paid (a negative
+// delta, meaning the pool's balance grows) grows only by its net-of-fee amount; the side
+// the swapper received (a positive delta, meaning the pool's balance shrinks) shrinks by
+// the full amount, since that side actually left the pool's reserves.
+function principalDelta(delta: bigint, feePips: bigint): bigint {
+  return delta < 0n ? (delta * (1_000_000n - feePips)) / 1_000_000n : delta;
+}
+
 indexer.onEvent(
   { contract: "PoolManager", event: "Swap", fields: { block: ["timestamp"], transaction: ["hash", "from"] } },
   async ({ event, context }) => {
     const pool = await context.Pool.get(event.params.id.toLowerCase());
     if (!pool) return; // untracked pool
+    if (event.params.amount0 === 0n && event.params.amount1 === 0n) return; // no-op swap
     const token = await context.Token.getOrThrow(pool.token_id);
     const quote = await context.Quote.getOrThrow(pool.quote_id);
     // Swap amounts are the swapper's deltas, emitted before afterSwap: they are pre-hook-fee.
@@ -157,9 +168,9 @@ indexer.onEvent(
       ...pool,
       priceQuote: price,
       sqrtPriceX96: event.params.sqrtPriceX96,
-      // The pool gains what the swapper pays and loses what the swapper receives.
-      tvlToken: pool.tvlToken === undefined ? undefined : pool.tvlToken - tokenDelta,
-      tvlQuote: pool.tvlQuote === undefined ? undefined : pool.tvlQuote - quoteDelta,
+      // TVL tracks principal liquidity only, net of the swap fee (see principalDelta above).
+      tvlToken: pool.tvlToken === undefined ? undefined : pool.tvlToken - principalDelta(tokenDelta, event.params.fee),
+      tvlQuote: pool.tvlQuote === undefined ? undefined : pool.tvlQuote - principalDelta(quoteDelta, event.params.fee),
       swapCount: pool.swapCount + 1,
       lastSwapAt: ts,
       volumeQuoteAllTime: pool.volumeQuoteAllTime + amountQuote,
@@ -184,10 +195,5 @@ indexer.onEvent({ contract: "PoolManager", event: "ModifyLiquidity" }, async ({ 
   if (token.poolCount > 1) await recomputePrimaryPool(context, token.id);
 });
 
-indexer.onEvent({ contract: "PoolManager", event: "Donate" }, async ({ event, context }) => {
-  const pool = await context.Pool.get(event.params.id.toLowerCase());
-  if (!pool || pool.tvlToken === undefined || pool.tvlQuote === undefined) return;
-  const tokenAmt = pool.tokenIsCurrency0 ? event.params.amount0 : event.params.amount1;
-  const quoteAmt = pool.tokenIsCurrency0 ? event.params.amount1 : event.params.amount0;
-  context.Pool.set({ ...pool, tvlToken: pool.tvlToken + tokenAmt, tvlQuote: pool.tvlQuote + quoteAmt });
-});
+// No Donate handler: v4 donations accrue to fee growth like swap fees do, not to
+// principal liquidity, so they must not be added to tvlToken/tvlQuote either.

@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
 import { createTestIndexer, type Address } from "envio";
+import { amountsForLiquidityDelta } from "../lib/liquidity";
 
 // Simulate items type their address-shaped fields (srcAddress, currency0/1, hooks,
 // sender, from) as the generated `Address` (`0x${string}`) rather than plain
@@ -41,6 +42,19 @@ function swap(amount0: bigint, amount1: bigint, sqrtPriceX96: bigint, block: num
     block: { number: block, timestamp: 1_700_000_000 + block * 60 },
     transaction: { hash: TX, from: WALLET },
     params: { id: POOL, sender: WALLET, amount0, amount1, sqrtPriceX96, liquidity: 10n ** 18n, tick: 0n, fee: 3000n },
+  };
+}
+
+function modifyLiquidity(id: string, liquidityDelta: bigint, block: number) {
+  return {
+    contract: "PoolManager" as const,
+    event: "ModifyLiquidity" as const,
+    srcAddress: POOL_MANAGER,
+    block: { number: block, timestamp: 1_700_000_000 + block },
+    params: {
+      id, sender: WALLET, tickLower: -887272n, tickUpper: 887272n, liquidityDelta,
+      salt: "0x" + "00".repeat(32),
+    },
   };
 }
 
@@ -95,7 +109,7 @@ describe("Initialize discovery", () => {
 });
 
 describe("Swap", () => {
-  it("records a buy, updates price, candles and TVL", async (t) => {
+  it("records a buy, updates price, candles and TVL net of the swap fee", async (t) => {
     const indexer = createTestIndexer();
     // swapper receives 1000 AI (amount0 positive), pays 1 NVDA (amount1 negative); price after = 4
     await indexer.process({ chains: { 4663: { simulate: [
@@ -106,7 +120,9 @@ describe("Swap", () => {
     t.expect(pool.swapCount).toBe(1);
     t.expect(pool.priceQuote).toBeCloseTo(4, 9);
     t.expect(pool.tvlToken).toBe(-(1000n * 10n ** 18n));
-    t.expect(pool.tvlQuote).toBe(10n ** 18n);
+    // The paid side (quote) nets out the 0.3% swap fee, which accrues to fee growth rather
+    // than becoming pool liquidity: 1e18 * (1_000_000 - 3000) / 1_000_000 = 997n * 10n ** 15n.
+    t.expect(pool.tvlQuote).toBe(997n * 10n ** 15n);
     t.expect(pool.volumeQuoteAllTime).toBeCloseTo(1, 9);
     const swaps = await indexer.Swap.getAll();
     t.expect(swaps).toHaveLength(1);
@@ -123,6 +139,19 @@ describe("Swap", () => {
     t.expect(m1.low).toBeCloseTo(1, 9);
     t.expect(m1.volumeQuote).toBeCloseTo(1, 9);
     t.expect(m1.trades).toBe(1);
+  });
+  it("ignores zero-amount swaps", async (t) => {
+    const indexer = createTestIndexer();
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({}, 100),
+      swap(0n, 0n, Q96, 101),
+    ] } } });
+    const pool = await indexer.Pool.getOrThrow(POOL);
+    t.expect(pool.swapCount).toBe(0);
+    t.expect(pool.tvlToken).toBe(0n);
+    t.expect(pool.tvlQuote).toBe(0n);
+    t.expect(await indexer.Swap.getAll()).toHaveLength(0);
+    t.expect(await indexer.Candle.getAll()).toHaveLength(0);
   });
   it("aggregates two swaps in one bucket and opens the next bucket at the previous close", async (t) => {
     const indexer = createTestIndexer();
@@ -145,27 +174,75 @@ describe("Swap", () => {
     await indexer.process({ chains: { 4663: { simulate: [swap(1n, -1n, Q96, 5)] } } });
     t.expect(await indexer.Swap.getAll()).toHaveLength(0);
   });
-});
-
-describe("ModifyLiquidity and Donate", () => {
-  it("adds full-range liquidity to TVL and donations on top", async (t) => {
+  it("sells on a pool where the token is currency1, excluding the fee from tvl", async (t) => {
     const indexer = createTestIndexer();
+    const id = "0x" + "77".repeat(32);
     await indexer.process({ chains: { 4663: { simulate: [
-      init({}, 100),
+      // token price 1 USDG at Initialize: ratio^2 = 1e12 and 10^(6-18) cancel.
+      init({ id, currency0: USDG, currency1: OTHER_TOKEN, hooks: ZERO, sqrtPriceX96: Q96 * 1_000_000n }, 100),
       {
-        contract: "PoolManager" as const, event: "ModifyLiquidity" as const, srcAddress: POOL_MANAGER,
+        contract: "PoolManager" as const, event: "Swap" as const, srcAddress: POOL_MANAGER,
         block: { number: 101, timestamp: 1_700_000_101 },
-        params: { id: POOL, sender: WALLET, tickLower: -887272n, tickUpper: 887272n, liquidityDelta: 10n ** 18n, salt: "0x" + "00".repeat(32) },
-      },
-      {
-        contract: "PoolManager" as const, event: "Donate" as const, srcAddress: POOL_MANAGER,
-        block: { number: 102, timestamp: 1_700_000_102 },
-        params: { id: POOL, sender: WALLET, amount0: 5n, amount1: 7n },
+        transaction: { hash: TX, from: WALLET },
+        // Swapper pays 1 token (amount1 negative) and receives 2 USDG (amount0 positive), fee 1%.
+        params: { id, sender: WALLET, amount0: 2_000_000n, amount1: -(10n ** 18n), sqrtPriceX96: Q96 * 2_000_000n, liquidity: 10n ** 18n, tick: 0n, fee: 10000n },
       },
     ] } } });
-    const pool = await indexer.Pool.getOrThrow(POOL);
-    // about 1e18 of each side from the full-range position, plus the donation
-    t.expect(Number(pool.tvlToken! - 5n) / 1e18).toBeCloseTo(1, 5);
-    t.expect(Number(pool.tvlQuote! - 7n) / 1e18).toBeCloseTo(1, 5);
+    const pool = await indexer.Pool.getOrThrow(id);
+    const swaps = await indexer.Swap.getAll();
+    t.expect(swaps).toHaveLength(1);
+    t.expect(swaps[0]!.side).toBe("sell");
+    t.expect(swaps[0]!.amountToken).toBeCloseTo(1, 9);
+    t.expect(swaps[0]!.amountQuote).toBeCloseTo(2, 9);
+    t.expect(swaps[0]!.priceQuote).toBeCloseTo(2, 9); // execution price: 2 USDG / 1 token
+    t.expect(pool.priceQuote).toBeCloseTo(0.25, 9);   // post-swap pool price at the chosen sqrtPriceX96
+    t.expect(pool.tvlQuote).toBe(-2_000_000n);        // received side: subtracted in full
+    // Paid side nets out the 1% fee: 10n**18n * (1_000_000n - 10_000n) / 1_000_000n.
+    t.expect(pool.tvlToken).toBe((10n ** 18n * 990_000n) / 1_000_000n);
+  });
+});
+
+describe("recomputePrimaryPool", () => {
+  it("switches the primary pool to the one with higher USD tvl", async (t) => {
+    const indexer = createTestIndexer();
+    const usdgPoolId = "0x" + "55".repeat(32);
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({}, 100),                                                          // AI/NVDA, Doppler hook
+      init({ id: usdgPoolId, currency0: AI, currency1: USDG, hooks: ZERO }, 101), // AI/USDG, hookless
+    ] } } });
+    let token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    t.expect(token.poolCount).toBe(2);
+    // Both pools have 0 tvl and 0 swaps, so the tiebreak falls to createdAt: the NVDA pool is earliest.
+    t.expect(token.primaryPool_id).toBe(POOL);
+
+    await indexer.process({ chains: { 4663: { simulate: [modifyLiquidity(usdgPoolId, 10n ** 18n, 102)] } } });
+    token = await indexer.Token.getOrThrow(AI.toLowerCase());
+    // USDG is pinned at 1, so the USDG pool now has a nonzero USD tvl while the NVDA pool
+    // still has none (no Chainlink price for NVDA exists in this test), and it takes over.
+    t.expect(token.primaryPool_id).toBe(usdgPoolId);
+    t.expect(token.origin).toBe("Uniswap");
+  });
+});
+
+describe("ModifyLiquidity", () => {
+  it("orients tvl by currency and leaves exact rounding dust after a full add and remove", async (t) => {
+    const indexer = createTestIndexer();
+    const id = "0x" + "66".repeat(32);
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({ id, currency0: USDG, currency1: OTHER_TOKEN, hooks: ZERO }, 100),
+    ] } } });
+    const { amount0: added0, amount1: added1 } = amountsForLiquidityDelta(Q96, -887272, 887272, 10n ** 18n);
+
+    await indexer.process({ chains: { 4663: { simulate: [modifyLiquidity(id, 10n ** 18n, 101)] } } });
+    const afterAdd = await indexer.Pool.getOrThrow(id);
+    t.expect(afterAdd.tvlToken).toBe(added1); // token is currency1
+    t.expect(afterAdd.tvlQuote).toBe(added0); // quote (USDG) is currency0
+
+    const { amount0: removed0, amount1: removed1 } = amountsForLiquidityDelta(Q96, -887272, 887272, -(10n ** 18n));
+    await indexer.process({ chains: { 4663: { simulate: [modifyLiquidity(id, -(10n ** 18n), 102)] } } });
+    const afterRemove = await indexer.Pool.getOrThrow(id);
+    // Adds round up and removes round down, so a few wei of dust remain instead of exactly 0.
+    t.expect(afterRemove.tvlToken).toBe(added1 + removed1);
+    t.expect(afterRemove.tvlQuote).toBe(added0 + removed0);
   });
 });

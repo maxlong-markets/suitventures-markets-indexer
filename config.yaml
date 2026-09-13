@@ -12,7 +12,6 @@ contracts:
             - hash
             - from
       - event: ModifyLiquidity(bytes32 indexed id, address indexed sender, int24 tickLower, int24 tickUpper, int256 liquidityDelta, bytes32 salt)
-      - event: Donate(bytes32 indexed id, address indexed sender, uint256 amount0, uint256 amount1)
   - name: Token
     # No address: registered from PoolManager.Initialize
     events:
