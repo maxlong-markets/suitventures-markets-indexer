@@ -42,4 +42,25 @@ describe("candles", () => {
     expect(candleWindowAllows("m1", 10_000_000)).toBe(false);
     expect(candleWindowAllows("m5", 10_000_000)).toBe(false);
   });
+
+  // FW8: only a plain, trimmed non-negative integer counts as a start block.
+  // Number(...) alone would happily accept a blank/whitespace string as 0,
+  // scientific notation, and a fractional block number, none of which is a
+  // real block height.
+  it("disables the interval for a blank/whitespace start block", () => {
+    process.env.ENVIO_CANDLES_1M_START_BLOCK = " ";
+    expect(candleWindowAllows("m1", 0)).toBe(false);
+  });
+  it("disables the interval for a negative start block", () => {
+    process.env.ENVIO_CANDLES_1M_START_BLOCK = "-1";
+    expect(candleWindowAllows("m1", 0)).toBe(false);
+  });
+  it("disables the interval for a start block in scientific notation", () => {
+    process.env.ENVIO_CANDLES_1M_START_BLOCK = "1e3";
+    expect(candleWindowAllows("m1", 1000)).toBe(false);
+  });
+  it("disables the interval for a fractional start block", () => {
+    process.env.ENVIO_CANDLES_1M_START_BLOCK = "12.5";
+    expect(candleWindowAllows("m1", 13)).toBe(false);
+  });
 });

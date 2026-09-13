@@ -19,11 +19,18 @@ export function candleId(poolId: string, interval: Interval, bucket: number): st
   return `${poolId}-${interval}-${bucket}`;
 }
 
+// Only a plain, trimmed non-negative integer counts as a start block. A bare
+// Number(...) conversion would also accept a blank/whitespace string (as 0),
+// scientific notation, and a fractional value — none of which is a real
+// block height.
+const START_BLOCK_RE = /^[0-9]+$/;
+
 function startBlock(name: string): number | undefined {
   const raw = process.env[name];
-  if (raw === undefined || raw === "") return undefined;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : undefined;
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!START_BLOCK_RE.test(trimmed)) return undefined;
+  return Number(trimmed);
 }
 
 /**
