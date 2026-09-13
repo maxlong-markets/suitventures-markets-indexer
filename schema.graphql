@@ -1,5 +1,118 @@
-type Pool {
-  id: ID!
+enum Origin {
+  LONG
+  Pons
+  Uniswap
+  Other
+  SUIT
+  SV
+}
+
+enum Side {
+  buy
+  sell
+}
+
+enum Interval {
+  m1
+  m5
+  m15
+  h1
+  d1
+}
+
+# Allowlisted quote asset (rows seeded from config/quotes.json on first sight).
+type Quote {
+  id: ID!               # lowercase address
+  address: String!      # checksummed
+  symbol: String!
+  name: String!
+  decimals: Int!
+  enabled: Boolean!     # false: keep existing pools, stop discovering new ones
+}
+
+# Latest USD price per quote from its Chainlink feed (USDG pinned at 1).
+type QuotePrice {
+  id: ID!               # quote id
+  quote: Quote!
+  usdPrice: Float!
+  updatedAt: Int!       # feed updatedAt, unix seconds
+  aggregator: String!   # lowercase aggregator address, or "pinned"
+}
+
+# Aggregator address to quote, so AnswerUpdated finds its quote after a rotation.
+type QuoteFeed {
+  id: ID!               # lowercase aggregator address
+  quote: Quote!
+  decimals: Int!
+  proxy: String!
+}
+
+type Token {
+  id: ID!               # lowercase address
+  address: String!
+  symbol: String!
+  name: String!
+  decimals: Int!
+  metadataLoaded: Boolean!
+  totalSupply: BigInt!  # running sum of mints minus burns
+  holdersCount: Int!
+  poolCount: Int!
+  origin: Origin!       # origin of primaryPool
+  primaryPool: Pool
+  createdAt: Int!       # block time of the first discovered pool or transfer
+  pools: [Pool!]! @derivedFrom(field: "token")
+}
+
+type Pool @index(fields: ["token", ["lastSwapAt", "DESC"]]) {
+  id: ID!               # poolId (bytes32, lowercase)
+  token: Token! @index
+  quote: Quote! @index
+  tokenIsCurrency0: Boolean!
   hooks: String!
+  fee: Int!
+  tickSpacing: Int!
+  origin: Origin!
   createdAt: Int!
+  priceQuote: Float!    # token price in quote units, post-swap pool price
+  sqrtPriceX96: BigInt!
+  tvlToken: BigInt      # raw; null until liquidity accounting is live
+  tvlQuote: BigInt
+  swapCount: Int!
+  lastSwapAt: Int
+  volumeQuoteAllTime: Float!
+}
+
+type Swap @index(fields: ["pool", ["timestamp", "DESC"]]) {
+  id: ID!               # txHash-logIndex
+  pool: Pool!
+  token: Token!
+  timestamp: Int!
+  side: Side!
+  amountToken: Float!
+  amountQuote: Float!
+  priceQuote: Float!    # execution price, pre-hook-fee
+  wallet: String!
+  txHash: String!
+}
+
+type Candle @index(fields: ["pool", "interval", ["t", "DESC"]]) @index(fields: ["interval", "t"]) {
+  id: ID!               # poolId-interval-bucket
+  pool: Pool!
+  interval: Interval!
+  t: Int!               # bucket start, unix seconds
+  open: Float!
+  high: Float!
+  low: Float!
+  close: Float!
+  volumeQuote: Float!
+  volumeToken: Float!
+  trades: Int!
+}
+
+type TokenBalance @index(fields: ["token", ["balance", "DESC"]]) {
+  id: ID!               # tokenId-holder
+  token: Token!
+  holder: String!       # lowercase
+  balance: BigInt!
+  updatedAt: Int!
 }
