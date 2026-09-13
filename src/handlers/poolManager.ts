@@ -55,9 +55,16 @@ indexer.onEvent({ ...INITIALIZE, fields: { block: ["timestamp"] } }, async ({ ev
   if (!token.historyLoaded) {
     // Envio delivers this token's Transfer logs only from this block on (registration block,
     // same-block coverage). Everything earlier — the mint, launchpad-curve trades — is replayed here.
+    // Always await the effect first, even during preload: that's what warms its cache so the
+    // real, sequential commit pass below doesn't re-fetch it.
     const history = await context.effect(getTransferHistory, { token: c.token, toBlock: event.block.number - 1 });
-    for (const h of history) {
-      token = await applyTransfer(context, token, h.from, h.to, BigInt(h.value), h.timestamp || ts);
+    if (!context.isPreload) {
+      // Preload's own entity writes are discarded and rerun for real right before
+      // the commit pass (see envio's EventProcessing.res `preloadBatchOrThrow`), so
+      // applying the replay here would just be wasted TokenBalance reads/writes.
+      for (const h of history) {
+        token = await applyTransfer(context, token, h.from, h.to, BigInt(h.value), h.timestamp || ts);
+      }
     }
     token = { ...token, historyLoaded: true };
   }
