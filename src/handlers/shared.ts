@@ -1,4 +1,5 @@
 import { type Quote, type Token, type EvmOnEventContext } from "envio";
+import { getAddress } from "viem";
 import { quoteRow } from "../lib/quotes";
 import { choosePrimaryPool } from "../lib/primaryPool";
 import { USDG } from "../lib/constants";
@@ -17,7 +18,11 @@ export async function ensureQuote(context: HandlerContext, address: string, time
   if (existing) return existing;
   const row = quoteRow(id);
   if (!row) throw new Error(`ensureQuote called for non-quote ${address}`);
-  const quote: Quote = { id, address, symbol: row.symbol, name: row.name, decimals: row.decimals, enabled: true };
+  // Checksum regardless of the caller's casing (PoolManager.Initialize passes the raw on-chain
+  // address; the Chainlink handlers pass config/quotes.json's lowercase address), so
+  // `Quote.address` is checksummed no matter which handler creates the row first. `id` stays
+  // lowercase either way.
+  const quote: Quote = { id, address: getAddress(address), symbol: row.symbol, name: row.name, decimals: row.decimals, enabled: true };
   context.Quote.set(quote);
   if (id === USDG) {
     context.QuotePrice.set({ id, quote_id: id, usdPrice: 1, updatedAt: timestamp, aggregator: "pinned" });
