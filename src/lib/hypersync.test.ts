@@ -190,8 +190,8 @@ describe("fetchTransferHistory", () => {
     expect(attempts).toEqual([1, 2, 3]);
   });
 
-  // Review finding A: HyperSync's log filter matches on address + topic0 only,
-  // so a non-ERC-20 event that reuses the Transfer topic0 (ERC-721's
+  // HyperSync's log filter matches on address + topic0 only, so a non-ERC-20
+  // event that reuses the Transfer topic0 (ERC-721's
   // `Transfer(address,address,uint256 indexed)`, id-indexed, empty data) or a
   // log with non-standard `data` comes back too. Both must be skipped, not
   // decoded, and counted rather than silently corrupting a value or throwing.
@@ -229,9 +229,9 @@ describe("fetchTransferHistory", () => {
     expect(result.skipped).toBe(0);
   });
 
-  // Review finding B: a page that reports HTTP 200 but doesn't actually
-  // advance past its own from_block (or lacks next_block/data entirely) must
-  // throw, not return a truncated result that then gets cached as complete.
+  // A page that reports HTTP 200 but doesn't actually advance past its own
+  // from_block (or lacks next_block/data entirely) must throw, not return a
+  // truncated result that then gets cached as complete.
   it("throws when a page doesn't advance past its own from_block", async () => {
     const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
       const req = JSON.parse(String(init?.body)) as { from_block: number };
@@ -253,8 +253,8 @@ describe("fetchTransferHistory", () => {
     ).rejects.toThrow();
   });
 
-  // Review finding C: retries must also cover a rejected fetch (network
-  // error) and a malformed JSON body, not just 429/5xx status codes.
+  // Retries must also cover a rejected fetch (network error) and a
+  // malformed JSON body, not just 429/5xx status codes.
   it("retries a rejected fetch (network error) then succeeds", async () => {
     let n = 0;
     const fetchImpl = vi.fn(async () => {

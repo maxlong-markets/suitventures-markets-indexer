@@ -50,10 +50,10 @@ const ALL_BLOCKS: BlockFixture[] = [
   { number: 27_823_700, timestamp: 1_756_990_100 },
 ];
 
-// Review finding B: the mock must honour the request's from_block/to_block —
-// return only logs/blocks in that range, with next_block pinned to the
-// request's own to_block — so it always finishes in one page and never
-// returns a stale/duplicate one regardless of which toBlock a caller asks for.
+// The mock must honour the request's from_block/to_block — return only
+// logs/blocks in that range, with next_block pinned to the request's own
+// to_block — so it always finishes in one page and never returns a
+// stale/duplicate one regardless of which toBlock a caller asks for.
 function stubHyperSync(bodies: string[], logs: LogFixture[], blocks: BlockFixture[]) {
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
     const bodyStr = String(init?.body);
