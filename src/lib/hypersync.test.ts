@@ -127,14 +127,21 @@ describe("fetchTransferHistory", () => {
 
   it("throws after 10 attempts on a persistent 5xx, with no sleep after the last one", async () => {
     let n = 0;
+    let retries = 0;
     const fetchImpl = vi.fn(async () => {
       n += 1;
       return new Response("boom", { status: 503 });
     });
     await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
+      fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, onRetry: () => (retries += 1) },
+        fetchImpl as unknown as typeof fetch,
+      ),
     ).rejects.toThrow(/503/);
     expect(n).toBe(10);
+    // onRetry runs before every sleep, so a sleep after the last (10th)
+    // attempt would show up here as 10, not 9.
+    expect(retries).toBe(9);
   });
 
   it("retries a page that does not advance, then succeeds", async () => {
