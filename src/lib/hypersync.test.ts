@@ -108,6 +108,23 @@ describe("fetchTransferHistory", () => {
     expect(result.transfers).toEqual([]);
   });
 
+  // A non-429 4xx is never retried -- but before this, a body-read failure on
+  // one (a dropped connection mid-stream, say) fell into the same bucket as a
+  // 5xx's body-read failure and got retried up to 10 times anyway, about 4
+  // minutes at defaults, before finally throwing. It must throw on the very
+  // first attempt, the same as a 4xx whose body read succeeds.
+  it("throws immediately on a non-429 4xx whose body read fails, with no retry", async () => {
+    const fetchImpl = vi.fn(async () => {
+      const res = new Response("nope", { status: 401 });
+      vi.spyOn(res, "text").mockRejectedValueOnce(new Error("stream closed"));
+      return res;
+    });
+    await expect(
+      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
+    ).rejects.toThrow(/401/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("throws after 10 attempts on a persistent 5xx, with no sleep after the last one", async () => {
     let n = 0;
     const fetchImpl = vi.fn(async () => {

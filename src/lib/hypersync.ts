@@ -271,10 +271,14 @@ async function postQuery(
       await retry({ attempt, status: res.status, reason: "rate limited", waitMs });
       continue;
     }
-    if (res.status < 500 && !bodyReadFailed) {
-      throw lastError; // other 4xx: not retryable
+    if (res.status < 500) {
+      // Other 4xx: not retryable, whether or not the body read succeeded. A
+      // body-read failure here does not make it transient-shaped: it's still
+      // a status the server will just as surely reject again.
+      if (bodyReadFailed) throw new Error(`HyperSync ${res.status}: body read failed`, { cause: lastError });
+      throw lastError;
     }
-    // 5xx, or a body-read failure on any other status: "other retryable failure".
+    // 5xx, with or without a body-read failure: "other retryable failure".
     otherAttempts += 1;
     if (otherAttempts >= MAX_OTHER_ATTEMPTS) throw lastError;
     attempt += 1;
