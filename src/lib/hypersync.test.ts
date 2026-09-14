@@ -68,9 +68,9 @@ describe("fetchTransferHistory", () => {
     expect(result.transfers).toEqual([]);
   });
 
-  // FW1 (Critical C1): a HyperSync rate limit must slow the indexer, never stop
-  // it. The old 6-attempt cap died mid-sync on a real run (block 1,289,864);
-  // 429s now retry without any attempt cap.
+  // A HyperSync rate limit must slow the indexer, never stop it. The old
+  // 6-attempt cap died mid-sync on a real run (block 1,289,864); 429s now
+  // retry without any attempt cap.
   it("retries a 429 eight times (well past the old 6-attempt cap), then succeeds", async () => {
     let n = 0;
     const fetchImpl = vi.fn(async () => {
@@ -172,7 +172,7 @@ describe("fetchTransferHistory", () => {
     expect(result.skipped).toBe(2);
   });
 
-  // FW11: HyperSync's field_selection can return topic3 as an explicit null
+  // HyperSync's field_selection can return topic3 as an explicit null
   // (rather than simply omitting the key) for a log with no third indexed
   // topic. A valid ERC-20 Transfer log shaped that way must be decoded, not
   // treated as the ERC-721-shaped 3rd-topic case above.
@@ -197,8 +197,9 @@ describe("fetchTransferHistory", () => {
       const req = JSON.parse(String(init?.body)) as { from_block: number };
       return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // next_block === from_block: no progress
     });
-    // A stalled page is now retried (capped at 10 attempts, see FW1) rather than
-    // thrown immediately, so this needs a tiny retryDelayMs to stay fast.
+    // A stalled page is now retried (capped at 10 attempts, the same as any
+    // other retryable failure) rather than thrown immediately, so this needs a
+    // tiny retryDelayMs to stay fast.
     await expect(
       fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow();
@@ -261,7 +262,7 @@ describe("fetchTransferHistory", () => {
     }
   });
 
-  // FW4: the whole pre-registration history used to be held in memory with no
+  // The whole pre-registration history used to be held in memory with no
   // bound at all. Any non-quote token paired with USDG or a stock is tracked
   // (anyone can pair a spam token that way), so a WETH- or USDC-shaped pool
   // would otherwise replay that asset's entire chain history and exhaust

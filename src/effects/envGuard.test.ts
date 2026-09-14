@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 
-// FW2: without ENVIO_API_TOKEN, the transfer-history replay silently returns
+// Without ENVIO_API_TOKEN, the transfer-history replay silently returns
 // nothing while historyLoaded still gets set true, so supply and holders come
 // out wrong for every token; without ENVIO_RPC_URL, every token gets fallback
 // metadata with no warning at all. Both effect modules must throw at module
@@ -32,7 +32,7 @@ function importModule(relativePath: string, env: NodeJS.ProcessEnv) {
   );
 }
 
-describe("effect module-load env guards (FW2)", () => {
+describe("effect module-load env guards", () => {
   it("transferHistory.ts throws when ENVIO_API_TOKEN is empty outside of VITEST", () => {
     const result = importModule("./src/effects/transferHistory.ts", realRunEnv({ ENVIO_API_TOKEN: "" }));
     expect(result.status).not.toBe(0);

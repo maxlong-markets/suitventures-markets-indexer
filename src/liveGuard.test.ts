@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 
-// FW6: `npm run test:live` must fail fast with one clear message when it's
+// `npm run test:live` must fail fast with one clear message when it's
 // missing what it needs, instead of failing confusingly deep inside a real
 // chain read. Each check spawns a real `node` process (via tsx/esm) with
 // ENVIO_LIVE_TEST=1 and one required value broken: the guard throws at
@@ -32,7 +32,7 @@ function importLiveTest(env: NodeJS.ProcessEnv) {
   );
 }
 
-describe("live.test.ts module-load guard (FW6)", () => {
+describe("live.test.ts module-load guard", () => {
   it("throws when ENVIO_API_TOKEN is empty", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_API_TOKEN: "" }));
     expect(result.status).not.toBe(0);

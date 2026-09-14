@@ -43,7 +43,7 @@ describe("quotes", () => {
   });
 });
 
-// FW10: a malformed config/quotes.json (a duplicate address, a bad decimals
+// A malformed config/quotes.json (a duplicate address, a bad decimals
 // value, a one-sided Chainlink pairing, or a missing/misconfigured USDG row)
 // must fail the indexer at startup, not silently produce wrong prices or a
 // broken lookup later. validateQuotes is the pure function the module-level

@@ -20,7 +20,7 @@ describe("originFor", () => {
   });
 });
 
-// FW10: a typo'd origin value in config/curated-pools.json (a value that
+// A typo'd origin value in config/curated-pools.json (a value that
 // isn't one of the enum's real cases) must fail the indexer at startup
 // instead of silently producing a Token/Pool row GraphQL can't even encode.
 describe("validateCurated", () => {

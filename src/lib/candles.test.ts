@@ -43,7 +43,7 @@ describe("candles", () => {
     expect(candleWindowAllows("m5", 10_000_000)).toBe(false);
   });
 
-  // FW8: only a plain, trimmed non-negative integer counts as a start block.
+  // Only a plain, trimmed non-negative integer counts as a start block.
   // Number(...) alone would happily accept a blank/whitespace string as 0,
   // scientific notation, and a fractional block number, none of which is a
   // real block height.

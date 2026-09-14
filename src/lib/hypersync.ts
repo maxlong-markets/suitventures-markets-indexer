@@ -83,8 +83,8 @@ function isErc20TransferLog(log: HyperSyncLog): boolean {
 // "Other retryable failures" (5xx, a rejected fetch, a body-read failure, a
 // JSON parse failure) are capped at this many attempts total, then the last
 // error is thrown. HTTP 429 has no cap at all: a rate limit must slow the
-// indexer, never stop it (FW1 / review finding C1 — a real sync died at
-// block 1,289,864 when the old 6-attempt cap ran out under sustained 429s).
+// indexer, never stop it — a real sync died at block 1,289,864 when the old
+// 6-attempt cap ran out under sustained 429s.
 const MAX_OTHER_ATTEMPTS = 10;
 const MAX_DELAY_MS = 60_000;
 
@@ -112,8 +112,8 @@ async function sleep(ms: number): Promise<void> {
 /**
  * POSTs one HyperSync query, retrying transient failures with exponential
  * backoff. A 429 (the API token's shared quota with envio's own event
- * stream — see FW1) retries forever, since a busy indexer must slow down,
- * never give up. Every other retryable failure — 5xx, a rejected fetch, a
+ * stream) retries forever, since a busy indexer must slow down, never give
+ * up. Every other retryable failure — 5xx, a rejected fetch, a
  * body-read failure, a malformed JSON body — shares the same backoff curve
  * but gives up after MAX_OTHER_ATTEMPTS, throwing the last error. Any other
  * 4xx is not retried at all.
@@ -205,7 +205,7 @@ async function postQuery(
  * One page for `requestFromBlock`, retrying a lagging archive node (HTTP
  * succeeds, past postQuery's own retries, but `next_block` doesn't advance
  * past its own from_block — transient) with the same capped backoff as
- * postQuery's other retryable failures (FW1), then giving up. A structurally
+ * postQuery's other retryable failures, then giving up. A structurally
  * malformed response (no data array, no integer next_block) is not
  * transient-shaped and throws immediately instead.
  */

@@ -110,7 +110,7 @@ describe("Initialize discovery", () => {
     t.expect(indexer.chains[4663].Token.addresses.map((a) => a.toLowerCase())).not.toContain(ZERO);
   });
 
-  // FW4: a spam token can be paired with USDG or a stock by anyone. Without a
+  // A spam token can be paired with USDG or a stock by anyone. Without a
   // denylist, tracking one paired with a real asset (a wrapped BTC such as
   // cbBTC, and TAO) would replay that asset's entire chain transfer history.
   // Uses the first entry of the real generated config/token-denylist.json (see
@@ -254,7 +254,7 @@ describe("Swap", () => {
   });
 });
 
-// FW3: a token whose metadata read failed at Initialize used to retry only on
+// A token whose metadata read failed at Initialize used to retry only on
 // a second Initialize for the same token, and most tokens never get a second
 // pool. Every metadata read fails offline (ENVIO_RPC_URL is blanked, see
 // vitest.config.ts), so these exercise the throttled Swap-handler retry path

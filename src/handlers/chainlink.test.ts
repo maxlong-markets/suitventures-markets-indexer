@@ -97,7 +97,7 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
             // Established before the rotation, so AGGREGATOR's QuoteFeed row already
             // exists (active) when AggregatorConfirmed deactivates it below — this
             // exercises the "flip an existing row" branch, not just "create one
-            // inactive from scratch" (FW5).
+            // inactive from scratch".
             answerUpdated(AGGREGATOR!, BigInt(Math.round(224 * 10 ** dec)), 1n, 1_700_000_019n, BASE_BLOCK + 19),
             aggregatorConfirmed(PROXY!, AGGREGATOR!, NEW_AGG, BASE_BLOCK + 20),
             answerUpdated(NEW_AGG, BigInt(Math.round(230 * 10 ** dec)), 2n, 1_700_000_021n, BASE_BLOCK + 21),
@@ -117,10 +117,10 @@ describe.skipIf(!feedQuote)("Chainlink", () => {
     t.expect(newFeed.active).toBe(true);
   });
 
-  // FW5 (Minor 1): re-confirming the current aggregator (previous === latest)
-  // must never deactivate it — previously this always ran the deactivation
-  // branch whenever `previous` wasn't the zero address, even when it was the
-  // very aggregator just (re)confirmed as latest, immediately overwriting the
+  // Re-confirming the current aggregator (previous === latest) must never
+  // deactivate it — previously this always ran the deactivation branch
+  // whenever `previous` wasn't the zero address, even when it was the very
+  // aggregator just (re)confirmed as latest, immediately overwriting the
   // active row it had just written with an inactive one sharing the same id.
   it("does not deactivate an aggregator that re-confirms itself", async (t) => {
     const indexer = createTestIndexer();
