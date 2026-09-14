@@ -63,6 +63,15 @@
     "chainlinkDecimals": null
   },
   {
+    "address": "0xcef9027c7d6985b85f0ba431125073529a947a68",
+    "symbol": "BULL",
+    "name": "Webull • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
     "address": "0x6330d8c3178a418788df01a47479c0ce7ccf450b",
     "symbol": "COIN",
     "name": "Coinbase • Robinhood Token",
@@ -360,6 +369,15 @@
     "chainlinkDecimals": null
   },
   {
+    "address": "0x84cab63bc87912e71ad199ff14a0ba45de68fef8",
+    "symbol": "SKHY",
+    "name": "SK hynix Inc. American Depositary Shares • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
+  },
+  {
     "address": "0x411efb0e7f985935daec3d4c3ebaea0d0ad7d89f",
     "symbol": "SLV",
     "name": "iShares Silver Trust • Robinhood Token",
@@ -457,5 +475,14 @@
     "chainlinkProxy": "0x75a9c76ef439e2c7c2e5a34ab105ecfe3766431c",
     "chainlinkAggregator": "0xa6ac45e27d19f91c55109191d71cfba4a9f5fbe1",
     "chainlinkDecimals": 8
+  },
+  {
+    "address": "0x9e7abd3c9139d14e4c86dce0e455aab7a0c2fb3e",
+    "symbol": "WYFI",
+    "name": "WhiteFiber, Inc. • Robinhood Token",
+    "decimals": 18,
+    "chainlinkProxy": null,
+    "chainlinkAggregator": null,
+    "chainlinkDecimals": null
   }
 ]

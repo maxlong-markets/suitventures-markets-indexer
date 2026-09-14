@@ -12,6 +12,7 @@ const POOL_MANAGER: Address = "0x8366a39CC670B4001A1121B8F6A443A643e40951";
 const AI: Address = "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18";
 const NVDA: Address = "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC";
 const USDG: Address = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
+const WYFI: Address = "0x9e7abd3c9139d14e4c86dce0e455aab7a0c2fb3e";
 const DOPPLER: Address = "0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544";
 const ZERO: Address = "0x0000000000000000000000000000000000000000";
 const POOL = "0xcbdfea90430a30ee4469c9902e120a77e7c7e4711d5643671c1d1957f2f1ce27";
@@ -122,6 +123,21 @@ describe("Initialize discovery", () => {
     t.expect(await indexer.Pool.get(id)).toBeUndefined();
     t.expect(await indexer.Token.get(denylisted.toLowerCase())).toBeUndefined();
     t.expect(indexer.chains[4663].Token.addresses.map((a) => a.toLowerCase())).not.toContain(denylisted.toLowerCase());
+  });
+
+  it("treats WYFI as a quote and pairs it with a non-quote token as that token's pool", async (t) => {
+    const indexer = createTestIndexer();
+    const id = "0x" + "99".repeat(32);
+    await indexer.process({ chains: { 4663: { simulate: [
+      init({ id, currency0: OTHER_TOKEN, currency1: WYFI, hooks: ZERO, fee: 3000n }),
+    ] } } });
+    const pool = await indexer.Pool.getOrThrow(id);
+    t.expect(pool.token_id).toBe(OTHER_TOKEN.toLowerCase());
+    t.expect(pool.quote_id).toBe(WYFI.toLowerCase());
+    t.expect(pool.tokenIsCurrency0).toBe(true);
+    t.expect(indexer.chains[4663].Token.addresses.map((a) => a.toLowerCase())).toContain(OTHER_TOKEN.toLowerCase());
+    const quote = await indexer.Quote.getOrThrow(WYFI.toLowerCase());
+    t.expect(quote.symbol).toBe("WYFI");
   });
 });
 

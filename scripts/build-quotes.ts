@@ -8,10 +8,10 @@ const ERC20 = parseAbi([
   "function decimals() view returns (uint8)",
 ]);
 
-// Quotes Pons accepts that are not stock tokens. Add symbols here to exclude them.
-// Matched case-insensitively: an on-chain symbol()'s exact casing isn't guaranteed
-// to match how it's written here.
-const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO", "WYFI", "SKHY", "BULL"].map((s) => s.toUpperCase()));
+// Crypto or wrapped assets that Pons accepts as quotes, not Robinhood stock tokens.
+// Add symbols here to exclude them. Matched case-insensitively: an on-chain
+// symbol()'s exact casing isn't guaranteed to match how it's written here.
+const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO"].map((s) => s.toUpperCase()));
 const USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 const ZERO = "0x0000000000000000000000000000000000000000";
 

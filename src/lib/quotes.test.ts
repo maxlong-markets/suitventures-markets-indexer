@@ -28,6 +28,19 @@ describe("quotes", () => {
     expect(quoteForFeed(nvda.chainlinkAggregator!)?.symbol).toBe("NVDA");
     expect(quoteForFeed("0x1111111111111111111111111111111111111111")).toBeUndefined();
   });
+  it("allowlists the Robinhood stock tokens WYFI, SKHY and BULL with 18 decimals and no Chainlink feed yet", () => {
+    for (const address of [
+      "0x9e7abd3c9139d14e4c86dce0e455aab7a0c2fb3e", // WYFI
+      "0x84cab63bc87912e71ad199ff14a0ba45de68fef8", // SKHY
+      "0xcef9027c7d6985b85f0ba431125073529a947a68", // BULL
+    ]) {
+      expect(QUOTE_ADDRESSES).toContain(address);
+      const row = quoteRow(address)!;
+      expect(row.address).toBe(address);
+      expect(row.decimals).toBe(18);
+      expect(row.chainlinkProxy).toBeNull();
+    }
+  });
 });
 
 // FW10: a malformed config/quotes.json (a duplicate address, a bad decimals
