@@ -111,9 +111,9 @@ describe("Initialize discovery", () => {
   });
 
   // FW4: a spam token can be paired with USDG or a stock by anyone. Without a
-  // denylist, tracking one paired with a real asset (WETH, a wrapped BTC, ...)
-  // would replay that asset's entire chain transfer history. Uses the first
-  // entry of the real generated config/token-denylist.json (see
+  // denylist, tracking one paired with a real asset (a wrapped BTC such as
+  // cbBTC, and TAO) would replay that asset's entire chain transfer history.
+  // Uses the first entry of the real generated config/token-denylist.json (see
   // scripts/build-quotes.ts), so this exercises the actual production data.
   it("creates no Pool, Token or registration for a denylisted token paired with USDG", async (t) => {
     const indexer = createTestIndexer();

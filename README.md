@@ -15,7 +15,7 @@ Spec: `docs/superpowers/specs/2026-09-12-m1-live-data-design.md` in the frontend
 
 - `config/quotes.json`: the quote allowlist (stock tokens + USDG). `npm run build-quotes` regenerates it from the Pons pool snapshot; `npm run resolve-feeds` fills the Chainlink aggregator per proxy.
 - `config/curated-pools.json`: poolId to origin overrides (SUIT).
-- `config/token-denylist.json`: non-stock pairing assets (WETH, a wrapped BTC, ...) that must never be tracked as a memestock, however they're paired. `npm run build-quotes` regenerates it alongside `config/quotes.json`.
+- `config/token-denylist.json`: non-stock pairing assets (a wrapped BTC such as cbBTC, and TAO) that must never be tracked as a memestock, however they're paired. `npm run build-quotes` regenerates it alongside `config/quotes.json`.
 - `ENVIO_CANDLES_1M_START_BLOCK` / `ENVIO_CANDLES_5M_START_BLOCK`: candle creation windows; `npm run block-at -- <unix seconds>` finds a block.
 
 ## Validate against a real pool
