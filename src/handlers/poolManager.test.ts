@@ -22,7 +22,7 @@ const WALLET: Address = "0x3f8A7c21e9B4d0a6F15c8E2b7D9a4C0e1F6b9A2c";
 const TX = "0x" + "ab".repeat(32);
 
 function init(
-  params: Partial<{ id: string; currency0: Address; currency1: Address; hooks: Address; sqrtPriceX96: bigint }>,
+  params: Partial<{ id: string; currency0: Address; currency1: Address; hooks: Address; sqrtPriceX96: bigint; fee: bigint }>,
   block = 100,
 ) {
   return {
