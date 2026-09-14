@@ -262,6 +262,91 @@ describe("fetchTransferHistory", () => {
     }
   });
 
+  // A `Retry-After: 0` header used to pass straight through as a zero-length
+  // wait (retryAfterMs only rejected negative values, and the 429 branch used
+  // its result directly), so a server holding the limit open with `Retry-After:
+  // 0` produced an immediate-retry loop for as long as the limit lasted. The
+  // header is now a floor under the jittered backoff, never a replacement for it.
+  it("waits more than zero when Retry-After is 0", async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response("slow down", { status: 429, headers: { "Retry-After": "0" } });
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, onRetry: (info) => waits.push(info.waitMs) },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThan(0);
+  });
+
+  // A server that keeps answering the same small Retry-After forever must not
+  // pin every retry to that value: the backoff still escalates underneath it,
+  // and the header only raises the wait, never lowers it below that escalation.
+  it("waits the escalated backoff once it exceeds a shorter Retry-After header", async () => {
+    vi.useFakeTimers();
+    try {
+      let n = 0;
+      const waits: number[] = [];
+      const fetchImpl = vi.fn(async () => {
+        n += 1;
+        if (n <= 2) return new Response("slow down", { status: 429, headers: { "Retry-After": "1" } });
+        return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+      });
+      // random: () => 1 reproduces the un-jittered full backoff (1000ms, then
+      // 2000ms), so the second wait is deterministically 2000, past the 1000ms header.
+      const promise = fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", random: () => 1, onRetry: (info) => waits.push(info.waitMs) },
+        fetchImpl as unknown as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+      const result = await promise;
+      expect(waits).toEqual([1000, 2000]);
+      expect(result.transfers).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Every retryable-failure sleep is jittered ("equal jitter": half the raw
+  // backoff, plus up to that same half again at random) so a batch of requests
+  // hitting the same failure at once don't all retry in lockstep.
+  it("jitters the backoff for a network-error retry", async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) throw new Error("ECONNRESET");
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) },
+      fetchImpl as unknown as typeof fetch,
+    );
+    // backoffMs(0, 1) = 1ms; jittered by random: () => 0.25 to 1/2 + 0.25*(1/2) = 0.625.
+    expect(waits).toEqual([0.625]);
+  });
+
+  // The stalled-page retry in fetchPage shares the same jitter as postQuery's
+  // own retries, rather than sleeping the raw, un-jittered backoff.
+  it("jitters the backoff for a stalled-page retry", async () => {
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const req = JSON.parse(String(init?.body)) as { from_block: number };
+      return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // never advances
+    });
+    await expect(
+      fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) },
+        fetchImpl as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow();
+    expect(waits[0]).toBe(0.625); // stall=0: backoffMs(0,1)=1ms, jittered the same way
+  });
+
   // The whole pre-registration history used to be held in memory with no
   // bound at all. Any non-quote token paired with USDG or a stock is tracked
   // (anyone can pair a spam token that way), so a WETH- or USDC-shaped pool

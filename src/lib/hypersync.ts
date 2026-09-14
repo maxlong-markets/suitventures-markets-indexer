@@ -40,6 +40,11 @@ type Params = {
   // chain history into memory. Stops paging once the collected transfer
   // count would exceed this. Default 100k.
   maxTransfers?: number;
+  // Source of randomness for jittering every backoff sleep. Defaults to
+  // Math.random; a test injects () => 1 to get the old, un-jittered full
+  // backoff deterministically, or another fixed value to check the jitter
+  // formula itself.
+  random?: () => number;
 };
 
 type HyperSyncPage = {
@@ -94,6 +99,22 @@ function backoffMs(attempt: number, retryDelayMs: number): number {
   return Math.min(1000 * 2 ** attempt, MAX_DELAY_MS) * (retryDelayMs / 1000);
 }
 
+// "Equal jitter": halves the raw backoff, then adds back up to that same half
+// again at random, so a batch of requests that hit the same failure together
+// don't all retry in lockstep. random() => 1 reproduces the full, un-jittered
+// backoff exactly (ms/2 + 1*(ms/2) = ms).
+function jitter(ms: number, random: () => number): number {
+  return ms / 2 + random() * (ms / 2);
+}
+
+// Cross-cutting knobs threaded through every retry site in postQuery and
+// fetchPage, bundled so adding one doesn't mean widening every signature again.
+type RetryCtx = {
+  retryDelayMs: number;
+  random: () => number;
+  onRetry?: (info: HyperSyncRetryInfo) => void;
+};
+
 // HyperSync's Retry-After, in seconds, capped the same way as the backoff.
 // Not scaled by retryDelayMs: it's the server telling us how long *it* wants,
 // not a knob for us to shrink in tests (tests use fake timers for this path).
@@ -123,15 +144,14 @@ async function postQuery(
   apiToken: string,
   body: unknown,
   fetchImpl: typeof fetch,
-  retryDelayMs: number,
-  onRetry?: (info: HyperSyncRetryInfo) => void,
+  ctx: RetryCtx,
 ): Promise<HyperSyncPage> {
   let attempt = 0; // shared, ever-increasing counter: backoff exponent and the reported attempt number
   let otherAttempts = 0; // counts only "other retryable failures", capped at MAX_OTHER_ATTEMPTS
   let lastError: unknown;
 
   const retry = (info: HyperSyncRetryInfo) => {
-    onRetry?.(info);
+    ctx.onRetry?.(info);
     return sleep(info.waitMs);
   };
 
@@ -150,7 +170,7 @@ async function postQuery(
       otherAttempts += 1;
       if (otherAttempts >= MAX_OTHER_ATTEMPTS) throw lastError; // no sleep after the last attempt
       attempt += 1;
-      await retry({ attempt, reason: "network error", waitMs: backoffMs(attempt - 1, retryDelayMs) });
+      await retry({ attempt, reason: "network error", waitMs: jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random) });
       continue;
     }
 
@@ -163,7 +183,12 @@ async function postQuery(
         otherAttempts += 1;
         if (otherAttempts >= MAX_OTHER_ATTEMPTS) throw lastError;
         attempt += 1;
-        await retry({ attempt, status: res.status, reason: "invalid JSON body", waitMs: backoffMs(attempt - 1, retryDelayMs) });
+        await retry({
+          attempt,
+          status: res.status,
+          reason: "invalid JSON body",
+          waitMs: jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random),
+        });
         continue;
       }
     }
@@ -181,7 +206,10 @@ async function postQuery(
 
     if (res.status === 429) {
       attempt += 1;
-      const waitMs = retryAfterMs(res) ?? backoffMs(attempt - 1, retryDelayMs);
+      // The header is a floor under the jittered backoff, never a
+      // replacement for it: `Retry-After: 0` (or a header shorter than the
+      // now-escalated backoff) no longer collapses the wait.
+      const waitMs = Math.max(retryAfterMs(res) ?? 0, jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random));
       await retry({ attempt, status: res.status, reason: "rate limited", waitMs });
       continue;
     }
@@ -196,7 +224,7 @@ async function postQuery(
       attempt,
       status: res.status,
       reason: bodyReadFailed ? "body read failed" : `HTTP ${res.status}`,
-      waitMs: backoffMs(attempt - 1, retryDelayMs),
+      waitMs: jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random),
     });
   }
 }
@@ -214,12 +242,11 @@ async function fetchPage(
   apiToken: string,
   requestBody: unknown,
   fetchImpl: typeof fetch,
-  retryDelayMs: number,
   requestFromBlock: number,
-  onRetry?: (info: HyperSyncRetryInfo) => void,
+  ctx: RetryCtx,
 ): Promise<HyperSyncPage> {
   for (let stall = 0; ; stall += 1) {
-    const candidate = await postQuery(url, apiToken, requestBody, fetchImpl, retryDelayMs, onRetry);
+    const candidate = await postQuery(url, apiToken, requestBody, fetchImpl, ctx);
     if (!Array.isArray(candidate.data) || !Number.isInteger(candidate.next_block)) {
       // Returned as HTTP 200, this is worse than an error: silently
       // returning what little we have would let the caller cache a
@@ -231,8 +258,8 @@ async function fetchPage(
     if (stall + 1 >= MAX_OTHER_ATTEMPTS) {
       throw new Error(`HyperSync did not advance past block ${requestFromBlock} (next_block=${String(candidate.next_block)})`);
     }
-    const waitMs = backoffMs(stall, retryDelayMs);
-    onRetry?.({ attempt: stall + 1, reason: `no progress past block ${requestFromBlock}`, waitMs });
+    const waitMs = jitter(backoffMs(stall, ctx.retryDelayMs), ctx.random);
+    ctx.onRetry?.({ attempt: stall + 1, reason: `no progress past block ${requestFromBlock}`, waitMs });
     await sleep(waitMs);
   }
 }
@@ -249,6 +276,8 @@ export async function fetchTransferHistory(params: Params, fetchImpl: typeof fet
   const url = params.url ?? HYPERSYNC_URL;
   const retryDelayMs = params.retryDelayMs ?? 1000;
   const maxTransfers = params.maxTransfers ?? DEFAULT_MAX_TRANSFERS;
+  const random = params.random ?? Math.random;
+  const ctx: RetryCtx = { retryDelayMs, random, onRetry };
   if (toBlock < 0) return { transfers: [], skipped: 0 };
   const endExclusive = toBlock + 1;
   const out: HistoricalTransfer[] = [];
@@ -265,7 +294,7 @@ export async function fetchTransferHistory(params: Params, fetchImpl: typeof fet
         log: ["block_number", "log_index", "topic1", "topic2", "topic3", "data"],
       },
     };
-    const page = await fetchPage(url, apiToken, requestBody, fetchImpl, retryDelayMs, requestFromBlock, onRetry);
+    const page = await fetchPage(url, apiToken, requestBody, fetchImpl, requestFromBlock, ctx);
     // Build one block-timestamp map across every chunk of this page (not
     // per-chunk): a log and the block that times it can land in different
     // chunks of the same response.
