@@ -28,30 +28,34 @@ function importModule(relativePath: string, env: NodeJS.ProcessEnv) {
   return spawnSync(
     process.execPath,
     ["--import", "tsx/esm", "--input-type=module", "-e", `await import('${relativePath}')`],
-    { cwd: process.cwd(), env, encoding: "utf8" },
+    { cwd: process.cwd(), env, encoding: "utf8", timeout: 15_000 },
   );
 }
 
 describe("effect module-load env guards", () => {
   it("transferHistory.ts throws when ENVIO_API_TOKEN is empty outside of VITEST", () => {
     const result = importModule("./src/effects/transferHistory.ts", realRunEnv({ ENVIO_API_TOKEN: "" }));
+    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("ENVIO_API_TOKEN is required");
   });
 
   it("transferHistory.ts loads fine with a configured token outside of VITEST", () => {
     const result = importModule("./src/effects/transferHistory.ts", realRunEnv({ ENVIO_API_TOKEN: "dummy-token" }));
+    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).toBe(0);
   });
 
   it("tokenMetadata.ts throws when ENVIO_RPC_URL is empty outside of VITEST", () => {
     const result = importModule("./src/effects/tokenMetadata.ts", realRunEnv({ ENVIO_RPC_URL: "" }));
+    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("ENVIO_RPC_URL is required");
   });
 
   it("tokenMetadata.ts loads fine with a configured RPC URL outside of VITEST", () => {
     const result = importModule("./src/effects/tokenMetadata.ts", realRunEnv({ ENVIO_RPC_URL: "https://example.com/rpc" }));
+    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).toBe(0);
   });
 });
