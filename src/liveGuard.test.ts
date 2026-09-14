@@ -20,39 +20,41 @@ function liveTestEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
   };
 }
 
+// Throws result.error itself (rather than leaving each call site to assert
+// it's undefined) so a spawn failure -- e.g. killed by the timeout -- fails
+// loudly with its own message/stack, instead of silently looking like a
+// child that exited with the "wrong" status or stderr.
 function importLiveTest(env: NodeJS.ProcessEnv) {
-  return spawnSync(
+  const result = spawnSync(
     process.execPath,
     ["--import", "tsx/esm", "--input-type=module", "-e", "await import('./src/live.test.ts')"],
     { cwd: process.cwd(), env, encoding: "utf8", timeout: 15_000 },
   );
+  if (result.error) throw result.error;
+  return result;
 }
 
 describe("live.test.ts module-load guard", () => {
   it("throws when ENVIO_API_TOKEN is empty", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_API_TOKEN: "" }));
-    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(GUARD_MESSAGE);
   });
 
   it("throws when ENVIO_RPC_URL is empty", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_RPC_URL: "" }));
-    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(GUARD_MESSAGE);
   });
 
   it("throws when ENVIO_TEST_SWAP_BLOCK is missing or empty", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_TEST_SWAP_BLOCK: "" }));
-    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(GUARD_MESSAGE);
   });
 
   it("throws when ENVIO_TEST_SWAP_BLOCK is not a positive integer", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_TEST_SWAP_BLOCK: "-5" }));
-    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(GUARD_MESSAGE);
   });
@@ -66,7 +68,6 @@ describe("live.test.ts module-load guard", () => {
     // passed the guard, rather than merely crashing before it for some
     // unrelated reason (which would just as easily leave GUARD_MESSAGE absent).
     const result = importLiveTest(liveTestEnv({ ENVIO_LIVE_TEST: "", ENVIO_API_TOKEN: "" }));
-    expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.stderr).not.toContain(GUARD_MESSAGE);
     expect(result.stderr).toContain("Cannot read properties of undefined (reading 'config')");
   });
