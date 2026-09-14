@@ -111,10 +111,13 @@ describe("Initialize discovery", () => {
   });
 
   // A spam token can be paired with USDG or a stock by anyone. Without a
-  // denylist, tracking one paired with a real asset (a wrapped BTC such as
-  // cbBTC, and TAO) would replay that asset's entire chain transfer history.
-  // Uses the first entry of the real generated config/token-denylist.json (see
-  // scripts/build-quotes.ts), so this exercises the actual production data.
+  // denylist, cbBTC or TAO paired with a quote (USDG or a stock token, as
+  // below) would be tracked like any other non-quote token and replay that
+  // asset's entire chain transfer history -- unlike cbBTC or TAO paired
+  // directly with a spam token, which has no quote side and is never
+  // tracked at all. Uses the first entry of the real generated
+  // config/token-denylist.json (see scripts/build-quotes.ts), so this
+  // exercises the actual production data.
   it("creates no Pool, Token or registration for a denylisted token paired with USDG", async (t) => {
     const indexer = createTestIndexer();
     const denylisted = getAddress(denylist[0]!.address) as Address; // checksum for the Address-typed simulate field

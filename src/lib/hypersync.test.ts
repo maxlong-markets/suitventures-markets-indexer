@@ -237,9 +237,9 @@ describe("fetchTransferHistory", () => {
       const req = JSON.parse(String(init?.body)) as { from_block: number };
       return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // next_block === from_block: no progress
     });
-    // A stalled page is now retried (capped at 10 attempts, the same as any
-    // other retryable failure) rather than thrown immediately, so this needs a
-    // tiny retryDelayMs to stay fast.
+    // A stalled page is now retried (capped at MAX_OTHER_ATTEMPTS attempts --
+    // unlike a 429, which is retryable but has no cap at all) rather than
+    // thrown immediately, so this needs a tiny retryDelayMs to stay fast.
     await expect(
       fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow();
