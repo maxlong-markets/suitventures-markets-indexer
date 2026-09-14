@@ -9,19 +9,15 @@ import { spawnSync } from "node:child_process";
 // never touches HyperSync or the RPC.
 const GUARD_MESSAGE = "test:live needs ENVIO_API_TOKEN and ENVIO_RPC_URL in .env and a numeric ENVIO_TEST_SWAP_BLOCK";
 
-function liveTestEnv(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+function liveTestEnv(overrides: Record<string, string>): NodeJS.ProcessEnv {
+  return {
     ...process.env,
     ENVIO_LIVE_TEST: "1",
     ENVIO_API_TOKEN: "dummy-token",
     ENVIO_RPC_URL: "https://example.com/rpc",
     ENVIO_TEST_SWAP_BLOCK: "123",
+    ...overrides,
   };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete env[key];
-    else env[key] = value;
-  }
-  return env;
 }
 
 function importLiveTest(env: NodeJS.ProcessEnv) {
@@ -47,7 +43,7 @@ describe("live.test.ts module-load guard", () => {
     expect(result.stderr).toContain(GUARD_MESSAGE);
   });
 
-  it("throws when ENVIO_TEST_SWAP_BLOCK is missing", () => {
+  it("throws when ENVIO_TEST_SWAP_BLOCK is missing or empty", () => {
     const result = importLiveTest(liveTestEnv({ ENVIO_TEST_SWAP_BLOCK: "" }));
     expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.status).not.toBe(0);
@@ -64,9 +60,14 @@ describe("live.test.ts module-load guard", () => {
   it("does not fire when ENVIO_LIVE_TEST is unset, even with the same values missing", () => {
     // Outside vitest's own runner, describe() itself throws once past the
     // guard (no active suite to register into) — so this can only prove our
-    // guard did not fire, not that the file "loads fine" under vitest.
+    // guard did not fire, not that the file "loads fine" under vitest. That
+    // describe()-outside-the-runner failure is a stable vitest-internal
+    // TypeError; asserting on it below proves the child actually reached and
+    // passed the guard, rather than merely crashing before it for some
+    // unrelated reason (which would just as easily leave GUARD_MESSAGE absent).
     const result = importLiveTest(liveTestEnv({ ENVIO_LIVE_TEST: "", ENVIO_API_TOKEN: "" }));
     expect(result.error).toBeUndefined(); // not killed by the spawnSync timeout
     expect(result.stderr).not.toContain(GUARD_MESSAGE);
+    expect(result.stderr).toContain("Cannot read properties of undefined (reading 'config')");
   });
 });
