@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseAbi } from "viem";
 import { client } from "./rpc.ts";
+import { classifyQuoteToken, USDG } from "./quoteClassification.ts";
 
 const ERC20 = parseAbi([
   "function symbol() view returns (string)",
@@ -8,11 +9,6 @@ const ERC20 = parseAbi([
   "function decimals() view returns (uint8)",
 ]);
 
-// Crypto or wrapped assets that Pons accepts as quotes, not Robinhood stock tokens.
-// Add symbols here to exclude them. Matched case-insensitively: an on-chain
-// symbol()'s exact casing isn't guaranteed to match how it's written here.
-const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO"].map((s) => s.toUpperCase()));
-const USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 type Row = {
@@ -95,7 +91,7 @@ for (const address of addresses) {
     skipped.push(address);
     continue;
   }
-  if (address !== USDG && EXCLUDED_SYMBOLS.has(symbol.toUpperCase())) {
+  if (classifyQuoteToken(address, symbol, name) === "excluded") {
     // Not a stock token: anyone can still pair it with a quote on-chain, so it
     // must be denylisted (src/lib/denylist.ts), not just left out of the quote
     // allowlist here.
