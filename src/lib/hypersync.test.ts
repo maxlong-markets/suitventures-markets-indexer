@@ -12,6 +12,14 @@ function page(logs: object[], blocks: object[], next_block: number) {
   return { data: [{ logs, blocks }], next_block, archive_height: 99_999_999 };
 }
 
+// Every call below goes through this: a fresh, isolated pause (see
+// createRatePause -- no test may share the process-wide default, or it could
+// leak a pause into another test) and a tiny retryDelayMs, so a test that
+// needs neither still gets them for free, and one that does can override.
+function params(overrides: Partial<Parameters<typeof fetchTransferHistory>[0]> = {}): Parameters<typeof fetchTransferHistory>[0] {
+  return { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause(), ...overrides };
+}
+
 describe("fetchTransferHistory", () => {
   it("queries HyperSync with the token, topic and exclusive to_block, and decodes logs in order", async () => {
     const calls: { url: string; init: RequestInit }[] = [];
@@ -26,7 +34,7 @@ describe("fetchTransferHistory", () => {
         200,
       )), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 199, apiToken: "tok" }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params({ toBlock: 199 }), fetchImpl as unknown as typeof fetch);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe("https://4663.hypersync.xyz/query");
     expect((calls[0]!.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok");
@@ -47,13 +55,13 @@ describe("fetchTransferHistory", () => {
       if (n === 1) return new Response(JSON.stringify(page([{ block_number: 10, log_index: 0, topic1: pad(ZERO), topic2: pad(A), data: "0x" + "1".padStart(64, "0") }], [{ number: 10, timestamp: 10 }], 50)), { status: 200 });
       return new Response(JSON.stringify(page([{ block_number: 60, log_index: 0, topic1: pad(A), topic2: pad(B), data: "0x" + "1".padStart(64, "0") }], [{ number: 60, timestamp: 60 }], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok" }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(2);
     expect(result.transfers.map((t) => t.block)).toEqual([10, 60]);
   });
   it("returns nothing for toBlock below zero", async () => {
     const fetchImpl = vi.fn();
-    expect(await fetchTransferHistory({ token: TOKEN, toBlock: -1, apiToken: "tok" }, fetchImpl as unknown as typeof fetch)).toEqual({ transfers: [], skipped: 0 });
+    expect(await fetchTransferHistory(params({ toBlock: -1 }), fetchImpl as unknown as typeof fetch)).toEqual({ transfers: [], skipped: 0 });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
   it("retries a 429 then succeeds", async () => {
@@ -63,10 +71,7 @@ describe("fetchTransferHistory", () => {
       if (n === 1) return new Response("slow down", { status: 429 });
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory(
-      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause() },
-      fetchImpl as unknown as typeof fetch,
-    );
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(2);
     expect(result.transfers).toEqual([]);
   });
@@ -81,10 +86,7 @@ describe("fetchTransferHistory", () => {
       if (n <= 8) return new Response("slow down", { status: 429 });
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory(
-      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause() },
-      fetchImpl as unknown as typeof fetch,
-    );
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(9);
     expect(result.transfers).toEqual([]);
   });
@@ -100,10 +102,7 @@ describe("fetchTransferHistory", () => {
       }
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory(
-      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause() },
-      fetchImpl as unknown as typeof fetch,
-    );
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(2);
     expect(result.transfers).toEqual([]);
   });
@@ -112,16 +111,19 @@ describe("fetchTransferHistory", () => {
   // one (a dropped connection mid-stream, say) fell into the same bucket as a
   // 5xx's body-read failure and got retried up to 10 times anyway, about 4
   // minutes at defaults, before finally throwing. It must throw on the very
-  // first attempt, the same as a 4xx whose body read succeeds.
-  it("throws immediately on a non-429 4xx whose body read fails, with no retry", async () => {
+  // first attempt, the same as a 4xx whose body read succeeds, and it keeps
+  // the read failure as `cause` rather than losing it.
+  it("throws immediately on a non-429 4xx whose body read fails, with no retry, keeping the read error as cause", async () => {
     const fetchImpl = vi.fn(async () => {
       const res = new Response("nope", { status: 401 });
       vi.spyOn(res, "text").mockRejectedValueOnce(new Error("stream closed"));
       return res;
     });
-    await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow(/401/);
+    const err: unknown = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/401/);
+    expect((err as Error).cause).toBeInstanceOf(Error);
+    expect(((err as Error).cause as Error).message).toBe("stream closed");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -133,15 +135,28 @@ describe("fetchTransferHistory", () => {
       return new Response("boom", { status: 503 });
     });
     await expect(
-      fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, onRetry: () => (retries += 1) },
-        fetchImpl as unknown as typeof fetch,
-      ),
+      fetchTransferHistory(params({ onRetry: () => (retries += 1) }), fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow(/503/);
     expect(n).toBe(10);
     // onRetry runs before every sleep, so a sleep after the last (10th)
     // attempt would show up here as 10, not 9.
     expect(retries).toBe(9);
+  });
+
+  // Only a 429 may ever move the shared pause; a 5xx and a network error must
+  // leave it exactly where they found it, however many of them happen.
+  it("does not move the shared pause on a 5xx or a rejected fetch", async () => {
+    const pause = createRatePause();
+    let n = 0;
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) throw new Error("ECONNRESET"); // network error
+      if (n === 2) return new Response("boom", { status: 503 }); // 5xx
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(params({ pause }), fetchImpl as unknown as typeof fetch);
+    expect(n).toBe(3);
+    expect(pause.pausedUntil).toBe(0);
   });
 
   it("retries a page that does not advance, then succeeds", async () => {
@@ -152,7 +167,7 @@ describe("fetchTransferHistory", () => {
       if (n <= 3) return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 }); // lagging node: no progress
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(4);
     expect(result.transfers).toEqual([]);
   });
@@ -162,9 +177,7 @@ describe("fetchTransferHistory", () => {
       const req = JSON.parse(String(init?.body)) as { from_block: number };
       return new Response(JSON.stringify(page([], [], req.from_block)), { status: 200 });
     });
-    await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow();
+    await expect(fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch)).rejects.toThrow();
     expect(fetchImpl).toHaveBeenCalledTimes(10);
   });
 
@@ -177,14 +190,7 @@ describe("fetchTransferHistory", () => {
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
     await fetchTransferHistory(
-      {
-        token: TOKEN,
-        toBlock: 99,
-        apiToken: "tok",
-        retryDelayMs: 1,
-        pause: createRatePause(),
-        onRetry: (info) => attempts.push(info.attempt),
-      },
+      params({ onRetry: (info) => attempts.push(info.attempt) }),
       fetchImpl as unknown as typeof fetch,
     );
     expect(attempts).toEqual([1, 2, 3]);
@@ -207,7 +213,7 @@ describe("fetchTransferHistory", () => {
         200,
       )), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 199, apiToken: "tok" }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params({ toBlock: 199 }), fetchImpl as unknown as typeof fetch);
     expect(result.transfers).toEqual([{ block: 100, logIndex: 0, timestamp: 100, from: ZERO, to: A, value: "1000" }]);
     expect(result.skipped).toBe(2);
   });
@@ -224,7 +230,7 @@ describe("fetchTransferHistory", () => {
         200,
       )), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 199, apiToken: "tok" }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params({ toBlock: 199 }), fetchImpl as unknown as typeof fetch);
     expect(result.transfers).toEqual([{ block: 100, logIndex: 0, timestamp: 100, from: ZERO, to: A, value: "1000" }]);
     expect(result.skipped).toBe(0);
   });
@@ -240,17 +246,13 @@ describe("fetchTransferHistory", () => {
     // A stalled page is now retried (capped at MAX_OTHER_ATTEMPTS attempts --
     // unlike a 429, which is retryable but has no cap at all) rather than
     // thrown immediately, so this needs a tiny retryDelayMs to stay fast.
-    await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow();
+    await expect(fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch)).rejects.toThrow();
   });
   it("throws when next_block is missing", async () => {
     const fetchImpl = vi.fn(async () => {
       return new Response(JSON.stringify({ data: [{ logs: [], blocks: [] }], archive_height: 99_999_999 }), { status: 200 });
     });
-    await expect(
-      fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok" }, fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow();
+    await expect(fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch)).rejects.toThrow();
   });
 
   // Retries must also cover a rejected fetch (network error) and a
@@ -262,7 +264,7 @@ describe("fetchTransferHistory", () => {
       if (n === 1) throw new Error("ECONNRESET");
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(2);
     expect(result.transfers).toEqual([]);
   });
@@ -273,7 +275,7 @@ describe("fetchTransferHistory", () => {
       if (n === 1) return new Response("not json", { status: 200 });
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
-    const result = await fetchTransferHistory({ token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1 }, fetchImpl as unknown as typeof fetch);
+    const result = await fetchTransferHistory(params(), fetchImpl as unknown as typeof fetch);
     expect(n).toBe(2);
     expect(result.transfers).toEqual([]);
   });
@@ -289,12 +291,10 @@ describe("fetchTransferHistory", () => {
       // A tiny retryDelayMs would make the *unscaled* exponential backoff
       // resolve in ~1ms; Retry-After deliberately ignores that knob. random:
       // () => 0 also drops the pause-wait's own spread, so the total wait is
-      // exactly the 3s header: still seeing no second call after 2999ms
-      // proves the header, not the backoff or the spread, is what's waited on.
-      const promise = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0, pause: createRatePause() },
-        fetchImpl as unknown as typeof fetch,
-      );
+      // exactly the 3s header with nothing added on top: still seeing no
+      // second call after 2999ms proves the header (3s), not the backoff or
+      // the spread, is what's being waited on.
+      const promise = fetchTransferHistory(params({ random: () => 0 }), fetchImpl as unknown as typeof fetch);
       await vi.advanceTimersByTimeAsync(2999);
       expect(n).toBe(1);
       await vi.advanceTimersByTimeAsync(1);
@@ -320,7 +320,7 @@ describe("fetchTransferHistory", () => {
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
     await fetchTransferHistory(
-      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause(), onRetry: (info) => waits.push(info.waitMs) },
+      params({ onRetry: (info) => waits.push(info.waitMs) }),
       fetchImpl as unknown as typeof fetch,
     );
     expect(waits).toHaveLength(1);
@@ -343,17 +343,11 @@ describe("fetchTransferHistory", () => {
       // random: () => 1 reproduces the un-jittered full backoff (1000ms, then
       // 2000ms) -- and the pause-wait's own full spread each time it waits --
       // so the second reported wait is deterministically 2000, past the
-      // 1000ms header. Fake timers cost nothing in real test time, so 5000ms
-      // is advanced to comfortably cover the spread on top of both waits.
+      // 1000ms header. Total wall-clock time this takes (each wait, plus a
+      // full retryDelayMs spread on top) is comfortably under the 5s advanced
+      // below, since fake timers cost nothing in real test time.
       const promise = fetchTransferHistory(
-        {
-          token: TOKEN,
-          toBlock: 99,
-          apiToken: "tok",
-          random: () => 1,
-          pause: createRatePause(),
-          onRetry: (info) => waits.push(info.waitMs),
-        },
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, random: () => 1, pause: createRatePause(), onRetry: (info) => waits.push(info.waitMs) },
         fetchImpl as unknown as typeof fetch,
       );
       await vi.advanceTimersByTimeAsync(5000);
@@ -365,11 +359,11 @@ describe("fetchTransferHistory", () => {
     }
   });
 
-  // Important 1 (review, fix round 1): the pause-wait used to check the
-  // shared pause once, sleep once, then fetch unconditionally -- so if
-  // another request's 429 (or this request's own next one) extended the
-  // pause again while it slept, it fetched straight into the still-active
-  // pause anyway. The wait is now a loop that re-checks after every sleep.
+  // The pause-wait used to check the shared pause once, sleep once, then
+  // fetch unconditionally -- so if another request's 429 (or this request's
+  // own next one) extended the pause again while it slept, it fetched
+  // straight into the still-active pause anyway. The wait is now a loop
+  // that re-checks after every sleep.
   it("re-checks the shared pause after every sleep, instead of fetching into one extended during its wait", async () => {
     vi.useFakeTimers();
     try {
@@ -385,13 +379,13 @@ describe("fetchTransferHistory", () => {
       // lands exactly on the pause it just set. B: random: () => 0.5, so its
       // spread is visible and distinguishable from A's.
       const a = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0 },
+        params({ pause, retryDelayMs: 1000, random: () => 0 }),
         fetchImpl as unknown as typeof fetch,
       );
       await vi.advanceTimersByTimeAsync(0); // let A's own first fetch fire and set the pause to T+2000
       expect(n).toBe(1);
       const b = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0.5 },
+        params({ pause, retryDelayMs: 1000, random: () => 0.5 }),
         fetchImpl as unknown as typeof fetch,
       );
       await vi.advanceTimersByTimeAsync(2600);
@@ -411,14 +405,13 @@ describe("fetchTransferHistory", () => {
     }
   });
 
-  // Minor 1 (review, fix round 1): a request used to sleep once for exactly
-  // its own computed wait, then check the pause again with no spread of its
-  // own added -- so, depending on sub-millisecond timing, it could either
-  // slip through with no spread or add a whole extra one by chance (observed
-  // 0.8-6.8% of the time with jitter's fractional-ms waits). Now the pause
-  // recipient never sleeps directly: it always waits out the shared pause
-  // through the same loop as everyone else, so it always adds its own spread
-  // exactly once, deterministically.
+  // A request used to sleep once for exactly its own computed wait, then
+  // check the pause again with no spread of its own added -- so, depending
+  // on sub-millisecond timing, it could either slip through with no spread
+  // or add a whole extra one by chance (observed 0.8-6.8% of the time with
+  // jitter's fractional-ms waits). Now the pause recipient never sleeps
+  // directly: it always waits out the shared pause through the same loop as
+  // everyone else, so it always adds its own spread exactly once, deterministically.
   it("adds the waiting request's own spread on top of an already-set pause", async () => {
     vi.useFakeTimers();
     try {
@@ -432,7 +425,7 @@ describe("fetchTransferHistory", () => {
       // random: () => 0.5 with retryDelayMs: 1000 adds a 500ms spread on top
       // of the 1000ms remaining on the pause.
       const promise = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0.5 },
+        params({ pause, retryDelayMs: 1000, random: () => 0.5 }),
         fetchImpl as unknown as typeof fetch,
       );
       await vi.advanceTimersByTimeAsync(1400);
@@ -468,14 +461,8 @@ describe("fetchTransferHistory", () => {
       // first fetch (each synchronously, before either yields) while the
       // pause is still unset, so this is a genuine race, not one request
       // waiting on the other's pause.
-      const a = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause, random: () => 0 },
-        fetchImpl as unknown as typeof fetch,
-      );
-      const b = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause, random: () => 0 },
-        fetchImpl as unknown as typeof fetch,
-      );
+      const a = fetchTransferHistory(params({ pause, random: () => 0 }), fetchImpl as unknown as typeof fetch);
+      const b = fetchTransferHistory(params({ pause, random: () => 0 }), fetchImpl as unknown as typeof fetch);
       await vi.advanceTimersByTimeAsync(0); // let both responses land and both 429s get processed
       expect(n).toBe(2);
       expect(pause.pausedUntil).toBe(startedAt + 10_000); // A's longer wait wins over B's shorter one
@@ -489,7 +476,52 @@ describe("fetchTransferHistory", () => {
 
   // Every retryable-failure sleep is jittered ("equal jitter": half the raw
   // backoff, plus up to that same half again at random) so a batch of requests
-  // hitting the same failure at once don't all retry in lockstep.
+  // hitting the same failure at once don't all retry in lockstep. Each of
+  // these fails if `jitter()` is dropped at its own call site: random: () =>
+  // 0 halves the raw backoff, so an un-jittered site would report double.
+  it("jitters the 429 backoff underneath the header floor", async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response("slow down", { status: 429 }); // no header: backoff-only
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      params({ random: () => 0, onRetry: (info) => waits.push(info.waitMs) }),
+      fetchImpl as unknown as typeof fetch,
+    );
+    // backoffMs(0, 1) = 1ms; jittered by random: () => 0 to half: 1/2 + 0*(1/2) = 0.5.
+    expect(waits).toEqual([0.5]);
+  });
+  it("jitters the backoff for a malformed-JSON retry", async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response("not json", { status: 200 });
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      params({ random: () => 0, onRetry: (info) => waits.push(info.waitMs) }),
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(waits).toEqual([0.5]);
+  });
+  it("jitters the backoff for a 5xx retry", async () => {
+    let n = 0;
+    const waits: number[] = [];
+    const fetchImpl = vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response("boom", { status: 503 });
+      return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+    });
+    await fetchTransferHistory(
+      params({ random: () => 0, onRetry: (info) => waits.push(info.waitMs) }),
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(waits).toEqual([0.5]);
+  });
   it("jitters the backoff for a network-error retry", async () => {
     let n = 0;
     const waits: number[] = [];
@@ -499,7 +531,7 @@ describe("fetchTransferHistory", () => {
       return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
     });
     await fetchTransferHistory(
-      { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) },
+      params({ random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) }),
       fetchImpl as unknown as typeof fetch,
     );
     // backoffMs(0, 1) = 1ms; jittered by random: () => 0.25 to 1/2 + 0.25*(1/2) = 0.625.
@@ -516,7 +548,7 @@ describe("fetchTransferHistory", () => {
     });
     await expect(
       fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) },
+        params({ random: () => 0.25, onRetry: (info) => waits.push(info.waitMs) }),
         fetchImpl as unknown as typeof fetch,
       ),
     ).rejects.toThrow();
@@ -541,7 +573,7 @@ describe("fetchTransferHistory", () => {
       )), { status: 200 });
     });
     const result = await fetchTransferHistory(
-      { token: TOKEN, toBlock: 199, apiToken: "tok", maxTransfers: 2 },
+      params({ toBlock: 199, maxTransfers: 2 }),
       fetchImpl as unknown as typeof fetch,
     );
     expect(result).toEqual({ transfers: [], skipped: 0, capped: true });
@@ -556,7 +588,7 @@ describe("fetchTransferHistory", () => {
       )), { status: 200 });
     });
     const result = await fetchTransferHistory(
-      { token: TOKEN, toBlock: 199, apiToken: "tok", maxTransfers: 1 },
+      params({ toBlock: 199, maxTransfers: 1 }),
       fetchImpl as unknown as typeof fetch,
     );
     expect(result.capped).toBeUndefined();

@@ -2,16 +2,17 @@
 // allowlist (config/quotes.json, written by build-quotes.ts) or the
 // pairing-asset denylist (config/token-denylist.json), and fails loudly if a
 // token's on-chain name() disagrees with what its symbol implies, instead of
-// silently writing a miscategorized token. Symbol alone decided this before;
-// a symbol collision is how three real Robinhood stock tokens (WYFI, SKHY,
-// BULL) ended up excluded with no error at all.
+// silently writing a miscategorized token. Symbol alone decided this before,
+// with nothing to catch a bad entry in EXCLUDED_SYMBOLS itself: that's how
+// three real Robinhood stock tokens (WYFI, SKHY, BULL) ended up excluded
+// with no error at all, simply by being listed there by mistake.
 
 export const USDG = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 
 // Crypto or wrapped assets that Pons accepts as quotes, not Robinhood stock
 // tokens. Matched case-insensitively: an on-chain symbol()'s exact casing
 // isn't guaranteed to match how it's written here.
-export const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO"].map((s) => s.toUpperCase()));
+const EXCLUDED_SYMBOLS = new Set(["WETH", "ETH", "cbBTC", "TAO"].map((s) => s.toUpperCase()));
 
 const ROBINHOOD_SUFFIX = "Robinhood Token";
 

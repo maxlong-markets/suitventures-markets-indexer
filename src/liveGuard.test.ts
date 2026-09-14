@@ -62,13 +62,21 @@ describe("live.test.ts module-load guard", () => {
   it("does not fire when ENVIO_LIVE_TEST is unset, even with the same values missing", () => {
     // Outside vitest's own runner, describe() itself throws once past the
     // guard (no active suite to register into) — so this can only prove our
-    // guard did not fire, not that the file "loads fine" under vitest. That
-    // describe()-outside-the-runner failure is a stable vitest-internal
-    // TypeError; asserting on it below proves the child actually reached and
+    // guard did not fire, not that the file "loads fine" under vitest.
+    // Asserting on that failure below proves the child actually reached and
     // passed the guard, rather than merely crashing before it for some
-    // unrelated reason (which would just as easily leave GUARD_MESSAGE absent).
+    // unrelated reason (which would just as easily leave GUARD_MESSAGE
+    // absent). The failure is a TypeError thrown from inside @vitest/runner
+    // 4.1.0 (vitest is pinned exactly in package.json) rather than our own
+    // code; confirmed by running the child once. Its exact wording is an
+    // internal detail of that package version (which of its unguarded
+    // `runner.config` reads happens to run first) and not asserted on here,
+    // so this doesn't need re-capturing for a patch release, but the
+    // TypeError/@vitest/runner shape itself should be re-confirmed the same
+    // way on a vitest upgrade.
     const result = importLiveTest(liveTestEnv({ ENVIO_LIVE_TEST: "", ENVIO_API_TOKEN: "" }));
     expect(result.stderr).not.toContain(GUARD_MESSAGE);
-    expect(result.stderr).toContain("Cannot read properties of undefined (reading 'config')");
+    expect(result.stderr).toMatch(/TypeError/);
+    expect(result.stderr).toContain("@vitest/runner");
   });
 });
