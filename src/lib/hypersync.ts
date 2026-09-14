@@ -26,16 +26,10 @@ export type FetchTransferHistoryResult = {
 // can log progress without this module knowing about logging at all.
 export type HyperSyncRetryInfo = { attempt: number; status?: number; reason: string; waitMs: number };
 
-// A "do not send before" timestamp (epoch ms) shared by every HyperSync
-// request that carries the same instance, so one request's 429 slows every
-// other request sharing it down, not just itself. See createRatePause.
+// A "do not send before" time (epoch ms) shared across requests -- see postQuery's docstring.
 export type RatePause = { pausedUntil: number };
 
-// A fresh, never-paused RatePause. Production shares one module-level
-// instance by default (see `defaultPause` below) across every call to
-// fetchTransferHistory in the process. A test that can reach a 429 must
-// create its own with this factory: sharing the process-wide default would
-// leak a pause from one test into whichever runs next.
+// A fresh, never-paused RatePause, for a test that can reach a 429 -- see postQuery's docstring.
 export function createRatePause(): RatePause {
   return { pausedUntil: 0 };
 }
@@ -59,18 +53,10 @@ type Params = {
   // backoff deterministically, or another fixed value to check the jitter
   // formula itself.
   random?: () => number;
-  // Shared pause coordinating this call with every other HyperSync request
-  // that carries the same instance. Defaults to a module-level instance
-  // shared by the whole process; a test that can reach a 429 should pass its
-  // own via createRatePause() instead, so it can't leak into another test.
-  pause?: RatePause;
+  pause?: RatePause; // defaults to a module-level instance; see postQuery's docstring
 };
 
-// The module-level pause shared by every production call (transferHistory.ts
-// calls fetchTransferHistory with no `pause` of its own). One busy token's
-// 429 therefore backs off every other token's concurrent HyperSync request
-// too, for as long as this process runs.
-const defaultPause = createRatePause();
+const defaultPause = createRatePause(); // shared by every production call; see postQuery's docstring
 
 type HyperSyncPage = {
   data: { logs?: HyperSyncLog[]; blocks?: { number: number; timestamp: number | string }[] }[];
@@ -177,15 +163,18 @@ async function sleep(ms: number): Promise<void> {
  * in the process (see `defaultPause`; a test injects its own via
  * createRatePause() instead). Only a 429 moves it forward
  * (`pausedUntil = Math.max(pausedUntil, Date.now() + waitMs)`); 5xx and
- * network failures stay per-request and never touch it. That makes every
- * concurrent HyperSync request back off once any one of them is told to
- * slow down, not just the one that got the 429. A request that finds the
- * pause still in the future sleeps out the remainder plus its own
- * `random() * retryDelayMs` (up to ~1s at defaults), so a crowd of waiters
- * doesn't all resume in the same instant; one already past the pause adds no
- * delay at all. The pause is a plain module-level (or caller-supplied)
- * object, not persisted anywhere, so it only ever coordinates requests
- * within this one process's lifetime.
+ * network failures stay per-request and never touch it. A 429 does not sleep
+ * for this itself: it updates `pausedUntil`, reports `waitMs` to `onRetry`,
+ * and falls back to the same wait loop every attempt (including this
+ * request's own next one) starts with. That loop is a loop, not a single
+ * check, because the pause can be extended again by another 429 (including
+ * this request's own next one) while it's sleeping: each pass sleeps
+ * `pausedUntil - now + random() * retryDelayMs` (the spread stops a crowd of
+ * waiters resuming in the same instant) and then re-reads `pausedUntil`,
+ * only calling fetch once a pass finds it no longer in the future. A request
+ * that already finds it in the past adds no delay at all. The pause is a
+ * plain module-level (or caller-supplied) object, not persisted anywhere, so
+ * it only ever coordinates requests within this one process's lifetime.
  */
 async function postQuery(
   url: string,
@@ -204,10 +193,9 @@ async function postQuery(
   };
 
   for (;;) {
-    // Wait out a pause another request's 429 set, before every attempt —
-    // including this call's very first. Already past it: no delay at all.
-    const now = Date.now();
-    if (ctx.pause.pausedUntil > now) {
+    // Waits out ctx.pause before every attempt, re-checking after every
+    // sleep in case it was extended again meanwhile; see this function's docstring.
+    for (let now = Date.now(); ctx.pause.pausedUntil > now; now = Date.now()) {
       await sleep(ctx.pause.pausedUntil - now + ctx.random() * ctx.retryDelayMs);
     }
     let res: Response;
@@ -264,11 +252,14 @@ async function postQuery(
       // replacement for it: `Retry-After: 0` (or a header shorter than the
       // now-escalated backoff) no longer collapses the wait.
       const waitMs = Math.max(retryAfterMs(res) ?? 0, jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random));
-      // Only a 429 moves the shared pause forward, and only forward: a
-      // shorter wait computed here (a smaller Retry-After, say) must never
-      // pull an already-later pause back in.
+      // Only a 429 moves the pause, forward only (Math.max, never a plain
+      // assignment: a shorter wait computed here must never pull an
+      // already-later pause back in) -- see this function's docstring. No
+      // sleep here: this falls back to the wait loop above, the same path
+      // every attempt -- including this request's own next one -- waits the
+      // pause out on.
       ctx.pause.pausedUntil = Math.max(ctx.pause.pausedUntil, Date.now() + waitMs);
-      await retry({ attempt, status: res.status, reason: "rate limited", waitMs });
+      ctx.onRetry?.({ attempt, status: res.status, reason: "rate limited", waitMs });
       continue;
     }
     if (res.status < 500) {

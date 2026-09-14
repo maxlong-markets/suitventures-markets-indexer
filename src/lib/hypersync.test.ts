@@ -287,11 +287,12 @@ describe("fetchTransferHistory", () => {
         return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
       });
       // A tiny retryDelayMs would make the *unscaled* exponential backoff
-      // resolve in ~1ms; Retry-After deliberately ignores that knob, so
-      // still seeing no second call after 2999ms proves the header (3s), not
-      // the backoff, is what's being waited on.
+      // resolve in ~1ms; Retry-After deliberately ignores that knob. random:
+      // () => 0 also drops the pause-wait's own spread, so the total wait is
+      // exactly the 3s header: still seeing no second call after 2999ms
+      // proves the header, not the backoff or the spread, is what's waited on.
       const promise = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause: createRatePause() },
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, random: () => 0, pause: createRatePause() },
         fetchImpl as unknown as typeof fetch,
       );
       await vi.advanceTimersByTimeAsync(2999);
@@ -340,7 +341,10 @@ describe("fetchTransferHistory", () => {
         return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
       });
       // random: () => 1 reproduces the un-jittered full backoff (1000ms, then
-      // 2000ms), so the second wait is deterministically 2000, past the 1000ms header.
+      // 2000ms) -- and the pause-wait's own full spread each time it waits --
+      // so the second reported wait is deterministically 2000, past the
+      // 1000ms header. Fake timers cost nothing in real test time, so 5000ms
+      // is advanced to comfortably cover the spread on top of both waits.
       const promise = fetchTransferHistory(
         {
           token: TOKEN,
@@ -352,7 +356,7 @@ describe("fetchTransferHistory", () => {
         },
         fetchImpl as unknown as typeof fetch,
       );
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(5000);
       const result = await promise;
       expect(waits).toEqual([1000, 2000]);
       expect(result.transfers).toEqual([]);
@@ -361,12 +365,12 @@ describe("fetchTransferHistory", () => {
     }
   });
 
-  // A 429 extends a shared, process-wide pause (see createRatePause), so a
-  // second, unrelated request sharing it must not call fetch again until that
-  // pause has passed -- even though nothing has told *it* to slow down. Each
-  // test that can reach a 429 uses its own fresh instance (via createRatePause)
-  // so this coordination never leaks between tests.
-  it("makes a concurrent request wait out a pause set by another request's 429", async () => {
+  // Important 1 (review, fix round 1): the pause-wait used to check the
+  // shared pause once, sleep once, then fetch unconditionally -- so if
+  // another request's 429 (or this request's own next one) extended the
+  // pause again while it slept, it fetched straight into the still-active
+  // pause anyway. The wait is now a loop that re-checks after every sleep.
+  it("re-checks the shared pause after every sleep, instead of fetching into one extended during its wait", async () => {
     vi.useFakeTimers();
     try {
       const pause = createRatePause();
@@ -374,25 +378,110 @@ describe("fetchTransferHistory", () => {
       const fetchImpl = vi.fn(async () => {
         n += 1;
         if (n === 1) return new Response("slow down", { status: 429, headers: { "Retry-After": "2" } });
+        if (n === 2) return new Response("slow down", { status: 429, headers: { "Retry-After": "5" } });
         return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
       });
-      const first = fetchTransferHistory(
-        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause },
+      // A: random: () => 0 -- its own 429 wait adds no spread, so its retry
+      // lands exactly on the pause it just set. B: random: () => 0.5, so its
+      // spread is visible and distinguishable from A's.
+      const a = fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0 },
         fetchImpl as unknown as typeof fetch,
       );
-      await vi.advanceTimersByTimeAsync(0); // let the first request's own fetch fire and register the 429
+      await vi.advanceTimersByTimeAsync(0); // let A's own first fetch fire and set the pause to T+2000
       expect(n).toBe(1);
-      // random: () => 0 drops the second request's own extra jitter delay, so
-      // it resumes exactly when the shared pause passes, not any later.
-      const second = fetchTransferHistory(
+      const b = fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0.5 },
+        fetchImpl as unknown as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(2600);
+      // By T+2600: A's own retry (at T+2000) already got a second 429
+      // (Retry-After: 5), extending the pause to T+7000. B was due to wake at
+      // T+2500 (2000 + its own 500ms spread), but must have re-checked the
+      // now-later pause and gone back to sleep rather than fetching -- so
+      // still only A's two calls have happened.
+      expect(n).toBe(2);
+      await vi.advanceTimersByTimeAsync(4400); // T+7000: A's own wait elapses
+      expect(n).toBe(3);
+      await vi.advanceTimersByTimeAsync(500); // T+7500: B's re-extended wait elapses
+      await Promise.all([a, b]);
+      expect(n).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Minor 1 (review, fix round 1): a request used to sleep once for exactly
+  // its own computed wait, then check the pause again with no spread of its
+  // own added -- so, depending on sub-millisecond timing, it could either
+  // slip through with no spread or add a whole extra one by chance (observed
+  // 0.8-6.8% of the time with jitter's fractional-ms waits). Now the pause
+  // recipient never sleeps directly: it always waits out the shared pause
+  // through the same loop as everyone else, so it always adds its own spread
+  // exactly once, deterministically.
+  it("adds the waiting request's own spread on top of an already-set pause", async () => {
+    vi.useFakeTimers();
+    try {
+      const pause = createRatePause();
+      pause.pausedUntil = Date.now() + 1000; // as if another request's 429 already extended it
+      let n = 0;
+      const fetchImpl = vi.fn(async () => {
+        n += 1;
+        return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+      });
+      // random: () => 0.5 with retryDelayMs: 1000 adds a 500ms spread on top
+      // of the 1000ms remaining on the pause.
+      const promise = fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1000, pause, random: () => 0.5 },
+        fetchImpl as unknown as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(1400);
+      expect(n).toBe(0); // short of pausedUntil (1000ms) + its own spread (500ms)
+      await vi.advanceTimersByTimeAsync(100);
+      await promise;
+      expect(n).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The pause is only ever raised, never overwritten: two requests racing a
+  // 429 at once must leave the longer of their two waits in place, whichever
+  // is processed last. A plain assignment instead of Math.max would let the
+  // one processed second silently pull an already-longer pause back in.
+  it("keeps the longer pause when two requests race a 429 at once (Math.max, not overwrite)", async () => {
+    vi.useFakeTimers();
+    try {
+      const pause = createRatePause();
+      let n = 0;
+      const fetchImpl = vi.fn(async () => {
+        n += 1;
+        // First call (A, awaited first since it was invoked first): a long
+        // wait. Second (B, awaited second): a short one, which must not
+        // shrink what A just set.
+        if (n === 1) return new Response("slow down", { status: 429, headers: { "Retry-After": "10" } });
+        if (n === 2) return new Response("slow down", { status: 429, headers: { "Retry-After": "1" } });
+        return new Response(JSON.stringify(page([], [], 100)), { status: 200 });
+      });
+      const startedAt = Date.now();
+      // Called back to back, with no await between: both reach their own
+      // first fetch (each synchronously, before either yields) while the
+      // pause is still unset, so this is a genuine race, not one request
+      // waiting on the other's pause.
+      const a = fetchTransferHistory(
         { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause, random: () => 0 },
         fetchImpl as unknown as typeof fetch,
       );
-      await vi.advanceTimersByTimeAsync(1999);
-      expect(n).toBe(1); // second hasn't called fetch at all yet: the shared pause hasn't passed
-      await vi.advanceTimersByTimeAsync(1);
-      await Promise.all([first, second]);
-      expect(n).toBe(3); // first's retry attempt + second's first attempt, both once the pause cleared
+      const b = fetchTransferHistory(
+        { token: TOKEN, toBlock: 99, apiToken: "tok", retryDelayMs: 1, pause, random: () => 0 },
+        fetchImpl as unknown as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(0); // let both responses land and both 429s get processed
+      expect(n).toBe(2);
+      expect(pause.pausedUntil).toBe(startedAt + 10_000); // A's longer wait wins over B's shorter one
+      await vi.advanceTimersByTimeAsync(10_000);
+      await Promise.all([a, b]);
+      expect(n).toBe(4);
     } finally {
       vi.useRealTimers();
     }
