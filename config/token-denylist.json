@@ -1,0 +1,12 @@
+[
+  {
+    "address": "0xcec185eb182c47d1ba1efc84e6959e18cd620be4",
+    "symbol": "cbBTC",
+    "reason": "non-stock pairing asset"
+  },
+  {
+    "address": "0xf3081494b87e8d5fb7960f066e931d1d0e6e3d67",
+    "symbol": "TAO",
+    "reason": "non-stock pairing asset"
+  }
+]
