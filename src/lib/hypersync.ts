@@ -26,6 +26,20 @@ export type FetchTransferHistoryResult = {
 // can log progress without this module knowing about logging at all.
 export type HyperSyncRetryInfo = { attempt: number; status?: number; reason: string; waitMs: number };
 
+// A "do not send before" timestamp (epoch ms) shared by every HyperSync
+// request that carries the same instance, so one request's 429 slows every
+// other request sharing it down, not just itself. See createRatePause.
+export type RatePause = { pausedUntil: number };
+
+// A fresh, never-paused RatePause. Production shares one module-level
+// instance by default (see `defaultPause` below) across every call to
+// fetchTransferHistory in the process. A test that can reach a 429 must
+// create its own with this factory: sharing the process-wide default would
+// leak a pause from one test into whichever runs next.
+export function createRatePause(): RatePause {
+  return { pausedUntil: 0 };
+}
+
 const DEFAULT_MAX_TRANSFERS = 100_000;
 
 type Params = {
@@ -45,7 +59,18 @@ type Params = {
   // backoff deterministically, or another fixed value to check the jitter
   // formula itself.
   random?: () => number;
+  // Shared pause coordinating this call with every other HyperSync request
+  // that carries the same instance. Defaults to a module-level instance
+  // shared by the whole process; a test that can reach a 429 should pass its
+  // own via createRatePause() instead, so it can't leak into another test.
+  pause?: RatePause;
 };
+
+// The module-level pause shared by every production call (transferHistory.ts
+// calls fetchTransferHistory with no `pause` of its own). One busy token's
+// 429 therefore backs off every other token's concurrent HyperSync request
+// too, for as long as this process runs.
+const defaultPause = createRatePause();
 
 type HyperSyncPage = {
   data: { logs?: HyperSyncLog[]; blocks?: { number: number; timestamp: number | string }[] }[];
@@ -112,6 +137,7 @@ function jitter(ms: number, random: () => number): number {
 type RetryCtx = {
   retryDelayMs: number;
   random: () => number;
+  pause: RatePause;
   onRetry?: (info: HyperSyncRetryInfo) => void;
 };
 
@@ -134,10 +160,32 @@ async function sleep(ms: number): Promise<void> {
  * POSTs one HyperSync query, retrying transient failures with exponential
  * backoff. A 429 (the API token's shared quota with envio's own event
  * stream) retries forever, since a busy indexer must slow down, never give
- * up. Every other retryable failure — 5xx, a rejected fetch, a
- * body-read failure, a malformed JSON body — shares the same backoff curve
- * but gives up after MAX_OTHER_ATTEMPTS, throwing the last error. Any other
- * 4xx is not retried at all.
+ * up: its wait is `Math.max(retryAfterMs ?? 0, jitteredBackoff)` — the
+ * server's Retry-After header (capped at 60s, unscaled by retryDelayMs) acts
+ * as a floor under the escalating backoff, never a replacement for it, so
+ * `Retry-After: 0` (or one shorter than the now-escalated backoff) can no
+ * longer collapse the wait. Every other retryable failure — 5xx, a rejected
+ * fetch, a body-read failure, a malformed JSON body — shares the same
+ * backoff curve but gives up after MAX_OTHER_ATTEMPTS, throwing the last
+ * error. Any other 4xx is not retried at all. Every sleep computed here is
+ * "equal-jittered" (see `jitter`: half the raw backoff, plus up to that same
+ * half again at random) so a batch of requests hitting the same failure
+ * together don't retry in lockstep.
+ *
+ * Before each attempt — including the first — this also waits out
+ * `ctx.pause`: a "do not send before" time shared by every HyperSync request
+ * in the process (see `defaultPause`; a test injects its own via
+ * createRatePause() instead). Only a 429 moves it forward
+ * (`pausedUntil = Math.max(pausedUntil, Date.now() + waitMs)`); 5xx and
+ * network failures stay per-request and never touch it. That makes every
+ * concurrent HyperSync request back off once any one of them is told to
+ * slow down, not just the one that got the 429. A request that finds the
+ * pause still in the future sleeps out the remainder plus its own
+ * `random() * retryDelayMs` (up to ~1s at defaults), so a crowd of waiters
+ * doesn't all resume in the same instant; one already past the pause adds no
+ * delay at all. The pause is a plain module-level (or caller-supplied)
+ * object, not persisted anywhere, so it only ever coordinates requests
+ * within this one process's lifetime.
  */
 async function postQuery(
   url: string,
@@ -156,6 +204,12 @@ async function postQuery(
   };
 
   for (;;) {
+    // Wait out a pause another request's 429 set, before every attempt —
+    // including this call's very first. Already past it: no delay at all.
+    const now = Date.now();
+    if (ctx.pause.pausedUntil > now) {
+      await sleep(ctx.pause.pausedUntil - now + ctx.random() * ctx.retryDelayMs);
+    }
     let res: Response;
     try {
       res = await fetchImpl(url, {
@@ -210,6 +264,10 @@ async function postQuery(
       // replacement for it: `Retry-After: 0` (or a header shorter than the
       // now-escalated backoff) no longer collapses the wait.
       const waitMs = Math.max(retryAfterMs(res) ?? 0, jitter(backoffMs(attempt - 1, ctx.retryDelayMs), ctx.random));
+      // Only a 429 moves the shared pause forward, and only forward: a
+      // shorter wait computed here (a smaller Retry-After, say) must never
+      // pull an already-later pause back in.
+      ctx.pause.pausedUntil = Math.max(ctx.pause.pausedUntil, Date.now() + waitMs);
       await retry({ attempt, status: res.status, reason: "rate limited", waitMs });
       continue;
     }
@@ -277,7 +335,8 @@ export async function fetchTransferHistory(params: Params, fetchImpl: typeof fet
   const retryDelayMs = params.retryDelayMs ?? 1000;
   const maxTransfers = params.maxTransfers ?? DEFAULT_MAX_TRANSFERS;
   const random = params.random ?? Math.random;
-  const ctx: RetryCtx = { retryDelayMs, random, onRetry };
+  const pause = params.pause ?? defaultPause;
+  const ctx: RetryCtx = { retryDelayMs, random, pause, onRetry };
   if (toBlock < 0) return { transfers: [], skipped: 0 };
   const endExclusive = toBlock + 1;
   const out: HistoricalTransfer[] = [];
