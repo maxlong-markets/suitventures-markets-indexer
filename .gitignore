@@ -1,6 +1,7 @@
 node_modules/
 generated/
 .envio/
+.env
 .env*
 !.env.example
 logs/
